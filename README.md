@@ -43,7 +43,7 @@ Edit
 Configuration
 You can change detection settings by editing the constants at the top of the script:
 
-python
+```python
 Copy
 Edit
 MODEL = "meta_clip_classifier.pt"    # Path to trained model
@@ -51,37 +51,28 @@ CLIP_MODEL = "ViT-B/32"              # CLIP variant
 FPS = 0.3                            # Seconds between analyzed frames
 TARGET_CLASSES = [1, 2]              # Classes to detect
 CONFIDENCE_THRESHOLD = 0.7           # Min probability to count as a detection
-Default class meanings:
-
-0 → Normal content
-
-1 → Bumper
-
-2 → Commercial
+```
+Default class meanings:  0 → Normal content  1 → Bumper  2 → Commercial
 
 Usage
 Place your trained model file (meta_clip_classifier.pt) in the project folder.
 
 Run the script with:
 
-bash
-Copy
-Edit
+```bash
 python main.py
+```
 Edit the videos list in the __main__ block to point to your own video files:
 
-python
+```python
 Copy
 Edit
 videos = [
     "/path/to/video.mp4",
     "/another/video.mp4"
 ]
-Output example:
+```
 
-vbnet
-Copy
-Edit
 Processing: /path/to/video.mp4
 Detections: [(12.0, 1), (13.0, 1), (40.5, 2)]
 
