@@ -1,2 +1,2 @@
 /venv
-/datasets/annotations/*
+/datasets/annotations/*.json
