@@ -26,7 +26,6 @@ MODEL = "meta_clip_classifier.pt"
 RETRAIN_MODEL = "meta_clip_classifier.pt"
 CLIP_MODEL = "ViT-L/14"  # ViT-B/32
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
-SKIP_BLACK = True  # Set to False when classifying commercials.
 RETRAIN = False
 NORMALIZED_STATS = "normalization_stats.pt"
 BALANCE_TOLERANCE = 3  # The class tolerance for the balanced dataset.
@@ -273,7 +272,7 @@ class VideoFrameClipDataset(Dataset):
         if not ret:
             raise RuntimeError(f"Could not read frame at {timestamp}s in {video_path}")
 
-        if SKIP_BLACK and self.is_black_frame(frame):
+        if self.is_black_frame(frame):
             return torch.zeros((512,), device=self.device), -1, {}
 
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))

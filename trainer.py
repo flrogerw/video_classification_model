@@ -22,9 +22,8 @@ FPS = 0.3  # How often to grab a frame for the dataset
 DATA_BATCH_SIZE = 32
 LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "models/clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
+CLIP_MODEL = "ViT-B/32" #"ViT-B/32" or ViT-L/14
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
-SKIP_BLACK = True  # Set to False when classifying commercials.
 RETRAIN = False
 
 
@@ -244,7 +243,7 @@ class VideoFrameClipDataset(Dataset):
         if not ret:
             raise RuntimeError(f"Could not read frame at {timestamp}s in {video_path}")
 
-        if SKIP_BLACK and self.is_black_frame(frame):
+        if self.is_black_frame(frame):
             # Skip by returning an empty vector and a dummy label
             return torch.zeros((512,), device=self.device), torch.tensor(-1).to(self.device)
 
