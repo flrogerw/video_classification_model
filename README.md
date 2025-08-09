@@ -1,7 +1,6 @@
 # Video Segment Classifier (CLIP + Metadata)
 
-This project uses a **CLIP-based model** combined with **video metadata**(optional) to detect and classify segments in video files.  
-It is designed for tasks such as automatically identifying **intros/outros**, **commercials**, and other custom-defined video segments.
+This project uses a **CLIP-based model** combined with **video metadata**(optional) to detect and classify segments in video files.  It is designed for tasks such as automatically identifying **intros**, **outros** and other custom-defined video segments.
 
 ---
 
@@ -15,6 +14,9 @@ It is designed for tasks such as automatically identifying **intros/outros**, **
 - **Robust error handling** with `try/except` blocks.
 - Runs on **CPU**, **GPU** or **MPS** automatically.
 - **Lazy Loading** of annotations for less resources required.
+- **Filters Unwanted Frames** Blacks frames, redundant no motion frames.
+- **Confusion Matrix** Includes a per Epoch matrix (optional)
+- **Accuracy/Confidence Graph** Line graph tp plot accuracy and confidence throughout the process.
 
 ---
 

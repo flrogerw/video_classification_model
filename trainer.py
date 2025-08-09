@@ -27,6 +27,28 @@ TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
 RETRAIN = False
 
 
+def get_confidence_graph(accuracy: list, confidence: list):
+
+    # Example data
+    epochs = np.arange(1, 21)
+    accuracy = [0.55, 0.62, 0.70, 0.75, 0.78, 0.80, 0.81, 0.82, 0.82, 0.81,
+                0.80, 0.79, 0.78, 0.77, 0.77, 0.76, 0.75, 0.75, 0.74, 0.73]
+    confidence = [0.60, 0.68, 0.75, 0.80, 0.83, 0.85, 0.87, 0.88, 0.89, 0.90,
+                  0.91, 0.91, 0.92, 0.92, 0.93, 0.93, 0.94, 0.94, 0.94, 0.94]
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, accuracy, marker='o', label='Accuracy', color='blue')
+    plt.plot(epochs, confidence, marker='o', label='Confidence', color='orange')
+    plt.axvline(8, linestyle='--', color='gray', alpha=0.5, label='Potential Early Stop')
+    plt.title('Accuracy vs Confidence Over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Value')
+    plt.ylim(0.5, 1.0)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.show()
+
+
 def balanced_subset(dataset: Dataset, tolerance: float = 1.0) -> Subset:
     """
     Returns a balanced subset where the number of samples for each class
@@ -314,7 +336,7 @@ def train(device: str, model: nn.Module) -> None:
 
             for inputs, labels in train_loader:
                 inputs = inputs.to(device).float()
-                labels = labels.to(device).float()
+                labels = labels.to(device).long()
 
                 preds = model(inputs)
                 loss = loss_fn(preds, labels)
@@ -340,7 +362,7 @@ def train(device: str, model: nn.Module) -> None:
 
             with torch.no_grad():
                 for inputs, labels in val_loader:
-                    inputs, labels = inputs.to(device).float(), labels.to(device).float()
+                    inputs, labels = inputs.to(device).float(), labels.to(device).long()
                     outputs = model(inputs)
                     loss = loss_fn(outputs, labels)
 

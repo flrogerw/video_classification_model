@@ -326,7 +326,7 @@ def train(device: str, model: nn.Module) -> None:
 
             for image_inputs, labels, metadata_inputs in train_loader:
                 image_inputs = image_inputs.to(device).float()
-                labels = labels.to(device)
+                labels = labels.to(device).long()
                 meta_tensor = torch.cat(
                     [metadata_inputs[k].unsqueeze(1).float().to(device) for k in metadata_inputs],
                     dim=1)
@@ -359,7 +359,7 @@ def train(device: str, model: nn.Module) -> None:
                     meta_tensor = torch.cat(
                         [metadata_inputs[k].unsqueeze(1).float().to(device) for k in metadata_inputs],
                         dim=1)
-                    labels = labels.to(device)
+                    labels = labels.to(device).long()
 
                     outputs = model(image_inputs, meta_tensor)
                     loss = loss_fn(outputs, labels)
