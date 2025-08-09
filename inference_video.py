@@ -6,7 +6,7 @@ from torch import nn
 from collections import defaultdict
 from contact_sheet import VideoContactSheet
 
-MODEL = "clip_classifier.pt"
+MODEL = "models/clip_classifier.pt"
 CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 FPS = 0.3
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumper, 2 = commercial

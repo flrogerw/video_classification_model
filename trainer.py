@@ -21,7 +21,7 @@ FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
 FPS = 0.3  # How often to grab a frame for the dataset
 DATA_BATCH_SIZE = 32
 LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
-MODEL = "clip_classifier.pt"
+MODEL = "models/clip_classifier.pt"
 CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
 SKIP_BLACK = True  # Set to False when classifying commercials.
