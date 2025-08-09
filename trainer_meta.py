@@ -14,25 +14,25 @@ from torch.utils.data import Dataset, random_split, DataLoader, Subset
 from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
 from clip_frame_classifier import CLIPWithMetadataClassifier
-
+from contact_sheet import VideoContactSheet
 
 CONFUSION_MATRIX = False  # Whether to show the confusion matrix
-EPOCH_COUNT = 15  # Number of times to loop the dataset
-FRAME_BUFFER = 120  # Number of seconds on either side of an annotation timestamp
+EPOCH_COUNT = 12  # Number of times to loop the dataset
+FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
 FPS = 0.3  # How often to grab a frame for the dataset
 DATA_BATCH_SIZE = 32
 LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "meta_clip_classifier.pt"
 RETRAIN_MODEL = "meta_clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32"  # ViT-L/14
+CLIP_MODEL = "ViT-L/14"  # ViT-B/32
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
 SKIP_BLACK = True  # Set to False when classifying commercials.
 RETRAIN = False
 NORMALIZED_STATS = "normalization_stats.pt"
-BALANCE_TOLERENCE = 10.0 # The class tolerance for the balanced dataset.
+BALANCE_TOLERANCE = 3  # The class tolerance for the balanced dataset.
 
 
-def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERENCE) -> Subset:
+def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> Subset:
     """
     Returns a balanced subset where the number of samples for each class
     is within ±tolerance of the smallest class.
@@ -177,7 +177,7 @@ class VideoFrameClipDataset(Dataset):
         self.annotation_dir = annotation_dir
         self.interval_sec = interval_sec
         self.samples: List[Dict] = []
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps"
 
         try:
             self.model, self.preprocess = clip.load(CLIP_MODEL, device=self.device)
@@ -185,8 +185,6 @@ class VideoFrameClipDataset(Dataset):
             raise RuntimeError(f"Failed to load CLIP model: {e}")
 
         annotation_files = [f for f in os.listdir(annotation_dir) if f.endswith(".json")]
-
-        durations = []
 
         for annotation_file in annotation_files:
             annotation_path = os.path.join(annotation_dir, annotation_file)
@@ -199,8 +197,6 @@ class VideoFrameClipDataset(Dataset):
                 continue
 
             video_file = annotation.get("file_path")
-            #show_id = annotation.get("id", -1)
-            #season_number = annotation.get("season", -1)
 
             if not video_file or not os.path.exists(video_file):
                 print(f"Skipping missing video: {video_file}")
@@ -219,7 +215,7 @@ class VideoFrameClipDataset(Dataset):
 
             time_ranges = []
 
-            for key in ("bumpers", "commercials"):
+            for key in ("bumpers", "commercials", "content"):
                 segments = annotation.get(key)
 
                 if not segments:
@@ -244,20 +240,14 @@ class VideoFrameClipDataset(Dataset):
             epsilon = 0.01
             while t < (total_duration - epsilon):
                 if any(start <= t <= end for start, end in time_ranges):
-                    segment_duration = end - start
                     label = get_label(t, annotation)
                     self.samples.append({
                         "video_path": video_file,
                         "timestamp": t,
-                        "duration": segment_duration,
                         "video_duration": total_duration,
                         "label": label
                     })
-                    durations.append(segment_duration)
                 t += self.interval_sec
-
-        # Compute normalization parameters
-        self.duration_min, self.duration_max = min(durations), max(durations)
 
     @staticmethod
     def normalize(value, min_val, max_val):
@@ -299,7 +289,7 @@ class VideoFrameClipDataset(Dataset):
         return embedding, label, metadata
 
     @staticmethod
-    def is_black_frame(frame: np.ndarray, threshold: int = 10) -> bool:
+    def is_black_frame(frame: np.ndarray, threshold: int = 1.0) -> bool:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return gray.mean() < threshold
 
@@ -366,7 +356,7 @@ def train(device: str, model: nn.Module) -> None:
 
             with torch.no_grad():
                 for image_inputs, labels, metadata_inputs in val_loader:
-                    image_inputs = image_inputs.to(device)
+                    image_inputs = image_inputs.to(device).float()
                     meta_tensor = torch.cat(
                         [metadata_inputs[k].unsqueeze(1).float().to(device) for k in metadata_inputs],
                         dim=1)
@@ -402,8 +392,11 @@ def train(device: str, model: nn.Module) -> None:
 
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = torch.load(RETRAIN_MODEL, weights_only=False) if RETRAIN else CLIPWithMetadataClassifier(meta_weight=0.9).to(device)
+    device = "cuda" if torch.cuda.is_available() else "mps"
+    model = torch.load(RETRAIN_MODEL, weights_only=False) if RETRAIN else (
+        # CLIPWithMetadataClassifier(meta_weight=0.9).to(device))
+        CLIPWithMetadataClassifier(embedding_dim=768, metadata_dim=1, hidden_dim=128, num_classes=3,
+                                   meta_weight=1).to(device))
     train(device, model)
     save_model = f"retrained_{MODEL}" if RETRAIN else MODEL
     torch.save(model, save_model)

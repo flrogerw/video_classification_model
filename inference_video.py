@@ -4,12 +4,13 @@ import cv2
 from PIL import Image
 from torch import nn
 from collections import defaultdict
+from contact_sheet import VideoContactSheet
 
-MODEL = "retrained_clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32"
+MODEL = "clip_classifier.pt"
+CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 FPS = 0.3
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumper, 2 = commercial
-CONFIDENCE_THRESHOLD = 0.7 # Minimum confidence before using in calculations
+CONFIDENCE_THRESHOLD = 0.4 # Minimum confidence before using in calculations
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -18,7 +19,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Simple Classifier Head
 # ------------------------------
 class ClipFrameClassifier(nn.Module):
-    def __init__(self, input_dim: int = 512, num_classes: int = len(TARGET_CLASSES)):
+    def __init__(self, input_dim: int = 768, num_classes: int = 3):
         super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(input_dim, 256),
@@ -43,6 +44,13 @@ def load_clip_model():
     clip_model, preprocess = clip.load(CLIP_MODEL, device=device)
     return clip_model, preprocess
 
+def is_black_frame(frame, threshold=1):
+    """
+    Detects black or near-black frames by average pixel intensity.
+    threshold: mean pixel value below which the frame is considered black.
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return gray.mean() < threshold
 
 # Predict segments in video and collect (timestamp, predicted_class)
 def predict_video_segments(video_path, model, clip_model, preprocess, target_classes=TARGET_CLASSES):
@@ -54,6 +62,13 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
     success, frame = cap.read()
     while success:
         if frame_idx % int(fps * FPS) == 0:
+
+            # ---- Skip black frames ----
+            if is_black_frame(frame, threshold=10):
+                success, frame = cap.read()
+                frame_idx += 1
+                continue
+
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             image_input = preprocess(img).unsqueeze(0).to(device)
 
@@ -64,6 +79,9 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
                 probs = torch.softmax(output, dim=1)
 
             max_prob, predicted_class = torch.max(probs, dim=1)
+
+            print(max_prob.item(), " :: ", predicted_class.item(), " :: ", frame_idx / fps)
+
             if predicted_class.item() in target_classes and max_prob.item() > CONFIDENCE_THRESHOLD:
                 timestamp = frame_idx / fps
                 timestamped_classes.append((timestamp, predicted_class.item()))
@@ -107,7 +125,7 @@ if __name__ == "__main__":
     model = load_trained_model(MODEL)
     clip_model, preprocess = load_clip_model()
 
-    videos = ["/Volumes/TTBS/time_traveler/80s/80/Cosmos_One_Voice_in_the_Cosmic_Fugue.mp4"]
+    videos = ["/Volumes/TTBS/time_traveler/60s/63/My_Favorite_Martian_Rocket_to_Mars.mp4"] ## 5YhL0iW2kk.json
 
     for video_path in videos:
         timestamped_classes = predict_video_segments(video_path, model, clip_model, preprocess)

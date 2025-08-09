@@ -20,21 +20,17 @@ DB_CONFIG = {
 
 ROOT_DIR = '/Volumes/TTBS/time_traveler'
 SAMPLE_COUNT = 2
-
-# Matches only 2-digit folder names (e.g., '60', '01', '99')
-YEAR_FOLDER_PATTERN = re.compile(r'^\d{2}$')
-
+ANNOTATIONS_DIR = "dataset/annotations"
 
 def random_json_filename(length=10):
-    chars = string.ascii_letters + string.digits  # A-Z, a-z, 0-9
+    chars = string.ascii_letters + string.digits
     name = ''.join(random.choices(chars, k=length))
     return f"{name}.json"
 
 
 def set_annotation_file(annotation: dict):
-    output_dir = "dataset/annotations"
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, random_json_filename())
+    os.makedirs(ANNOTATIONS_DIR, exist_ok=True)
+    output_path = os.path.join(ANNOTATIONS_DIR, random_json_filename())
 
     # Write to JSON file
     with open(output_path, "w") as json_file:
@@ -62,9 +58,9 @@ def get_db_filenames(show_id: int, limit: int = 10):
         WHERE (end_point != FLOOR(end_point) OR start_point != FLOOR(start_point))  AND episode_airdate < '1990-01-01')
         SELECT * FROM ranked WHERE rn <= {SAMPLE_COUNT};"""
     conn = psycopg2.connect(**DB_CONFIG)
-    cur = conn.cursor(cursor_factory=RealDictCursor)  # <-- this returns rows as dicts
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute(query, (show_id, limit))
-    result = cur.fetchall()  # This is now a list of dicts
+    result = cur.fetchall()
     cur.close()
     conn.close()
     return result
@@ -89,6 +85,7 @@ def get_model_annotations(show_id: int):
             "file_path": f"{ROOT_DIR}/{decade}/{year}/{x['episode_file']}",
             "bumpers": bumpers if bumpers else None,
             "commercials": None,
+            "content": [[300.0, 320.0], [600.0, 610.0]]
             # "commercials": [[300.0, 360.0], [600.0, 660.0]]
         }
         set_annotation_file(annotation)

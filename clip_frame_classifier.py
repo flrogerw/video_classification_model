@@ -24,6 +24,8 @@ class CLIPWithMetadataClassifier(nn.Module):
         )
 
     def forward(self, embedding, metadata):
+        embedding = embedding.float()
+        metadata = metadata.float()
         emb_out = self.embedding_branch(embedding)
         meta_out = self.metadata_branch(metadata) * self.meta_weight
         combined = torch.cat((emb_out, meta_out), dim=1)

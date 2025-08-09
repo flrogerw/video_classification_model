@@ -13,25 +13,22 @@ from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
+from contact_sheet import VideoContactSheet
 
 CONFUSION_MATRIX = False  # Whether to show the confusion matrix
-EPOCH_COUNT = 10  # Number of times to loop the dataset
-FRAME_BUFFER = 120  # Number of seconds on either side of an annotation timestamp
+EPOCH_COUNT = 20  # Number of times to loop the dataset
+FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
 FPS = 0.3  # How often to grab a frame for the dataset
-DATA_BATCH_SIZE = 8
+DATA_BATCH_SIZE = 32
 LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32" # ViT-L/14
+CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
 SKIP_BLACK = True  # Set to False when classifying commercials.
 RETRAIN = False
 
 
-# ------------------------------
-# Utils
-# ------------------------------
-
-def balanced_subset(dataset: Dataset, tolerance: float = 10.0) -> Subset:
+def balanced_subset(dataset: Dataset, tolerance: float = 1.0) -> Subset:
     """
     Returns a balanced subset where the number of samples for each class
     is within ±tolerance of the smallest class.
@@ -164,9 +161,6 @@ def get_label(timestamp: float, annotation: Dict[str, Any]) -> int:
         return 0
 
 
-# ------------------------------
-# Dataset
-# ------------------------------
 class VideoFrameClipDataset(Dataset):
     """
     Lazily loads video frames and computes CLIP embeddings on the fly.
@@ -177,7 +171,7 @@ class VideoFrameClipDataset(Dataset):
         self.annotation_dir = annotation_dir
         self.interval_sec = interval_sec
         self.samples: List[Tuple[str, float, int]] = []
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps"
 
         try:
             self.model, self.preprocess = clip.load(CLIP_MODEL, device=self.device)
@@ -185,10 +179,8 @@ class VideoFrameClipDataset(Dataset):
             raise RuntimeError(f"Failed to load CLIP model: {e}")
 
         annotation_files = [f for f in os.listdir(annotation_dir) if f.endswith(".json")]
-        loop_counter = 0
+
         for annotation_file in annotation_files:
-            loop_counter += 1
-            print(loop_counter)
             annotation_path = os.path.join(annotation_dir, annotation_file)
             try:
                 with open(annotation_path, "r") as f:
@@ -214,7 +206,7 @@ class VideoFrameClipDataset(Dataset):
                 continue
 
             time_ranges = []
-            for key in ("bumpers", "commercials"):
+            for key in ("bumpers", "commercials", "content"):
                 segments = annotation.get(key)
                 if not segments:
                     continue
@@ -227,14 +219,16 @@ class VideoFrameClipDataset(Dataset):
 
             if not time_ranges:
                 continue
-
+            #vcs = VideoContactSheet(video_file, cols=5)
             t = 0.0
             epsilon = 0.01  # small margin to stay within video bounds
             while t < (duration - epsilon):
                 if any(start <= t <= end for start, end in time_ranges):
+                    #vcs.get_frame_at(t)
                     label = get_label(t, annotation)
                     self.samples.append((video_file, t, label))
                 t += self.interval_sec
+            #vcs.show_contact_sheet()
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -263,39 +257,10 @@ class VideoFrameClipDataset(Dataset):
         return embedding, torch.tensor(label).to(self.device)
 
     @staticmethod
-    def is_black_frame(frame: np.ndarray, threshold: int = 10) -> bool:
+    def is_black_frame(frame: np.ndarray, threshold: int = 1) -> bool:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return gray.mean() < threshold
 
-
-# ------------------------------
-# Simple Classifier Head
-# ------------------------------
-class CLIPWithMetadataClassifier(nn.Module):
-    def __init__(self, embedding_dim=512, metadata_dim=4, hidden_dim=128, num_classes=3):
-        super(CLIPWithMetadataClassifier, self).__init__()
-
-        self.embedding_branch = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.ReLU()
-        )
-
-        self.metadata_branch = nn.Sequential(
-            nn.Linear(metadata_dim, hidden_dim),
-            nn.ReLU()
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, num_classes)
-        )
-
-    def forward(self, embedding, metadata):
-        emb_out = self.embedding_branch(embedding)
-        meta_out = self.metadata_branch(metadata)
-        combined = torch.cat((emb_out, meta_out), dim=1)
-        return self.classifier(combined)
 
 
 class ClipFrameClassifier(nn.Module):
@@ -327,7 +292,7 @@ def train(device: str, model: nn.Module) -> None:
     try:
         # Load and balance dataset
         full_dataset = VideoFrameClipDataset("dataset/annotations", interval_sec=FPS)
-        balanced_dataset = balanced_subset(full_dataset)
+        balanced_dataset = balanced_subset(full_dataset, 3)
         class_counts = analyze_dataset(balanced_dataset)
         class_weights = compute_class_weights(class_counts).to(device)
 
@@ -349,8 +314,8 @@ def train(device: str, model: nn.Module) -> None:
             total = 0
 
             for inputs, labels in train_loader:
-                inputs = inputs.to(device)
-                labels = labels.to(device)
+                inputs = inputs.to(device).float()
+                labels = labels.to(device).float()
 
                 preds = model(inputs)
                 loss = loss_fn(preds, labels)
@@ -376,7 +341,7 @@ def train(device: str, model: nn.Module) -> None:
 
             with torch.no_grad():
                 for inputs, labels in val_loader:
-                    inputs, labels = inputs.to(device), labels.to(device)
+                    inputs, labels = inputs.to(device).float(), labels.to(device).float()
                     outputs = model(inputs)
                     loss = loss_fn(outputs, labels)
 
@@ -407,7 +372,9 @@ def train(device: str, model: nn.Module) -> None:
 
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = torch.load(MODEL, weights_only=False) if RETRAIN else CLIPWithMetadataClassifier().to(device)
+    device = "cuda" if torch.cuda.is_available() else "mps"
+   #  model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier(input_dim=768).to(device)
+    model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier().to(device)
     train(device, model)
-    torch.save(model, f"retrained_{MODEL}")
+    save_model = f"retrained_{MODEL}" if RETRAIN else MODEL
+    torch.save(model, save_model)

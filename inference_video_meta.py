@@ -3,19 +3,16 @@ import clip
 import cv2
 from PIL import Image
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
-# ------------------------------
-# Configuration constants
-# ------------------------------
 MODEL = "meta_clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32"
+CLIP_MODEL = "ViT-L/14" #"ViT-B/32"
 FPS = 0.3
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumper, 2 = commercial
-CONFIDENCE_THRESHOLD = 0.7
+CONFIDENCE_THRESHOLD = 0.4
 
 # Detect device
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "mps"
 
 
 def load_trained_model(path: str = MODEL) -> torch.nn.Module:
@@ -50,12 +47,12 @@ def load_clip_model() -> Tuple[torch.nn.Module, object]:
         raise RuntimeError(f"Failed to load CLIP model '{CLIP_MODEL}': {e}")
 
 
-def normalize_metadata(meta_dict: Dict[str, float]) -> torch.Tensor:
+def normalize_metadata(meta_dict: dict[str, float]) -> torch.Tensor:
     """
     Normalize metadata values into a tensor.
 
     Args:
-        meta_dict (dict): Dictionary containing metadata features.
+        meta_dict (dict): dictionary containing metadata features.
 
     Returns:
         torch.Tensor: 1D tensor of metadata features.
@@ -71,8 +68,8 @@ def predict_video_segments(
     model: torch.nn.Module,
     clip_model: torch.nn.Module,
     preprocess,
-    target_classes: Optional[List[int]] = None
-) -> List[Tuple[float, int]]:
+    target_classes: Optional[list[int]] = None
+) -> list[Tuple[float, int]]:
     """
     Predicts segments in a video that belong to specific target classes.
 
@@ -81,10 +78,10 @@ def predict_video_segments(
         model (torch.nn.Module): Trained classification model.
         clip_model (torch.nn.Module): CLIP model for frame embedding.
         preprocess (callable): CLIP preprocessing function.
-        target_classes (list[int], optional): List of class IDs to detect.
+        target_classes (list[int], optional): list of class IDs to detect.
 
     Returns:
-        list[tuple]: List of (timestamp, class_id) detections.
+        list[tuple]: list of (timestamp, class_id) detections.
     """
     if target_classes is None:
         target_classes = TARGET_CLASSES
@@ -109,7 +106,7 @@ def predict_video_segments(
             try:
                 # 1. Image embedding using CLIP
                 img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                image_input = preprocess(img).unsqueeze(0).to(device)
+                image_input = preprocess(img).unsqueeze(0).to(device).float()
                 with torch.no_grad():
                     embedding = clip_model.encode_image(image_input)
                     embedding = embedding / embedding.norm(dim=-1, keepdim=True)
@@ -118,7 +115,7 @@ def predict_video_segments(
                 meta_dict = {
                     "relative_position": timestamp / duration if duration > 0 else 0.0
                 }
-                meta_tensor = normalize_metadata(meta_dict).unsqueeze(0).to(device)
+                meta_tensor = normalize_metadata(meta_dict).unsqueeze(0).to(device).float()
 
                 # 3. Model prediction
                 with torch.no_grad():
@@ -126,6 +123,7 @@ def predict_video_segments(
                     probs = torch.softmax(output, dim=1)
 
                 max_prob, predicted_class = torch.max(probs, dim=1)
+                print(max_prob.item(), " :: ", predicted_class.item(), " :: ", frame_idx / fps)
 
                 # Save only confident predictions in target classes
                 if predicted_class.item() in target_classes and max_prob.item() > CONFIDENCE_THRESHOLD:
@@ -140,15 +138,12 @@ def predict_video_segments(
     return timestamped_classes
 
 
-def group_segments(
-    timestamped_classes: List[Tuple[float, int]],
-    max_gap: float = 2.0
-) -> Dict[int, List[Dict[str, float]]]:
+def group_segments(timestamped_classes: list[Tuple[float, int]], max_gap: float = 2.0) -> dict[int, list[dict[str, float]]]:
     """
     Groups timestamps into contiguous segments for each class.
 
     Args:
-        timestamped_classes (list[tuple]): List of (timestamp, class_id) detections.
+        timestamped_classes (list[tuple]): list of (timestamp, class_id) detections.
         max_gap (float): Max time gap (seconds) between consecutive timestamps to group.
 
     Returns:
@@ -199,7 +194,7 @@ if __name__ == "__main__":
         clip_model, preprocess = load_clip_model()
 
         videos = [
-            "/Volumes/TTBS/time_traveler/60s/61/Leave_It_To_Beaver_Wally_Goes_Steady.mp4"
+            "/Volumes/TTBS/time_traveler/60s/63/My_Favorite_Martian_Rocket_to_Mars.mp4"
         ]
 
         for video_path in videos:
@@ -209,7 +204,7 @@ if __name__ == "__main__":
 
             segments = group_segments(timestamped_classes, max_gap=2.0)
             label_map = {1: "bumper", 2: "commercial"}
-
+            print(segments)
             for cls, segs in segments.items():
                 print(f"\nDetected {label_map.get(cls, 'unknown')} segments:")
                 for seg in segs:
