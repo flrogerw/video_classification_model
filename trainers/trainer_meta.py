@@ -13,14 +13,13 @@ from torch import nn
 from torch.utils.data import Dataset, random_split, DataLoader, Subset
 from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
-from clip_frame_classifier import CLIPWithMetadataClassifier
+from classes.clip_frame_meta_classifier import CLIPWithMetadataClassifier
 import torch.nn.functional as F
-from contact_sheet import VideoContactSheet
 
 CONFUSION_MATRIX = False  # Whether to show the confusion matrix
-EPOCH_COUNT = 12  # Number of times to loop the dataset
+EPOCH_COUNT = 12  # Number of times to loop the datasets
 FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
-FPS = 0.3  # How often to grab a frame for the dataset
+FPS = 0.3  # How often to grab a frame for the datasets
 DATA_BATCH_SIZE = 32
 LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "meta_clip_classifier.pt"
@@ -28,7 +27,7 @@ RETRAIN_MODEL = "meta_clip_classifier.pt"
 CLIP_MODEL = "ViT-L/14"  # ViT-B/32
 TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
 RETRAIN = False
-BALANCE_TOLERANCE = 3  # The class tolerance for the balanced dataset.
+BALANCE_TOLERANCE = 3  # The class tolerance for the balanced datasets.
 BLACK_THRESHOLD = 10.0   # mean brightness below this = black
 MOTION_THRESHOLD = 2.0   # mean frame difference below this = low motion
 
@@ -59,11 +58,11 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
     is within ±tolerance of the smallest class.
 
     Args:
-        dataset: Input dataset (must return (image, metadata, label) tuples).
+        dataset: Input datasets (must return (image, metadata, label) tuples).
         tolerance: Allowed deviation from the smallest class (e.g., 0.1 = 10%).
 
     Returns:
-        Subset: A balanced subset of the dataset.
+        Subset: A balanced subset of the datasets.
     """
     try:
         label_to_indices = defaultdict(list)
@@ -75,14 +74,14 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
             elif len(sample) == 2:
                 _, label = sample
             else:
-                raise ValueError(f"Unexpected dataset sample format at index {idx}: {sample}")
+                raise ValueError(f"Unexpected datasets sample format at index {idx}: {sample}")
 
             label = int(label)
             if label < 0:
                 continue
             label_to_indices[label].append(idx)
 
-        print("Label distribution in full dataset:")
+        print("Label distribution in full datasets:")
         for label, indices in sorted(label_to_indices.items()):
             print(f"Class {label}: {len(indices)} samples")
 
@@ -124,10 +123,10 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
 
 def analyze_dataset(dataset: Dataset) -> Counter:
     """
-    Analyze and print the distribution of labels in a dataset.
+    Analyze and print the distribution of labels in a datasets.
 
     Args:
-        dataset: A dataset or Subset containing (x, label) pairs.
+        dataset: A datasets or Subset containing (x, label) pairs.
 
     Returns:
         Counter: A counter object with label frequencies.
@@ -146,7 +145,7 @@ def analyze_dataset(dataset: Dataset) -> Counter:
                 label_counts[int(label)] += 1
         return label_counts
     except Exception as e:
-        raise RuntimeError(f"Error analyzing dataset: {e}")
+        raise RuntimeError(f"Error analyzing datasets: {e}")
 
 
 def compute_class_weights(counter: Counter, num_classes: int = 3) -> torch.Tensor:
@@ -325,8 +324,8 @@ def train(device: str, model: nn.Module) -> None:
     Train the CLIP classifier using video frame embeddings and additional metadata features.
     """
     try:
-        # Load and balance dataset
-        full_dataset = VideoFrameClipDataset("dataset/annotations", interval_sec=FPS)
+        # Load and balance datasets
+        full_dataset = VideoFrameClipDataset("../datasets/annotations", interval_sec=FPS)
         balanced_dataset = balanced_subset(full_dataset)
         class_counts = analyze_dataset(balanced_dataset)
         class_weights = compute_class_weights(class_counts).to(device)

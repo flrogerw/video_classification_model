@@ -6,28 +6,27 @@ from PIL import Image
 import torch
 import random
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 from collections import defaultdict, Counter
 from torch import nn
 from torch.utils.data import Dataset, random_split, DataLoader, Subset
 from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
-import torch.nn.functional as F
-from contact_sheet import VideoContactSheet
+from datasets.create_dataset import ANNOTATIONS_DIR
 
 CONFUSION_MATRIX = False                # Whether to show the confusion matrix
-EPOCH_COUNT = 10                        # Number of times to loop the dataset
+EPOCH_COUNT = 10                        # Number of times to loop the datasets
 FRAME_BUFFER = 0                        # Number of seconds on either side of an annotation timestamp
-FPS = 0.3                               # How often to grab a frame for the dataset
+FPS = 0.3                               # How often to grab a frame for the datasets
 DATA_BATCH_SIZE = 32
-LABEL_COUNT = 3                         # 0 = normal content, 1 = bumpers, 2 = commercial
+LABEL_COUNT = 2                         # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "models/clip_classifier.pt"
 CLIP_MODEL = "ViT-B/32"                 #"ViT-B/32" or ViT-L/14
 TARGET_CLASSES = [1]                    # 0 = normal content, 1 = bumpers
 RETRAIN = False
-BALANCE_TOLERANCE = 2.0                 # The class tolerance for the balanced dataset.
-BLACK_THRESHOLD = 10.0                  # mean brightness below this = black
+BALANCE_TOLERANCE = 4.0                 # The class tolerance for the balanced datasets.
+BLACK_THRESHOLD = 1.0                   # mean brightness below this = black
 MOTION_THRESHOLD = 20.0                 # mean frame difference below this = low motion
 
 def get_confidence_graph(accuracy: list, confidence: list):
@@ -57,11 +56,11 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
     is within ±tolerance of the smallest class.
 
     Args:
-        dataset: Input dataset (must return (x, label) pairs).
+        dataset: Input datasets (must return (x, label) pairs).
         tolerance: Allowed deviation from the smallest class (e.g., 0.1 = 10%).
 
     Returns:
-        Subset: A balanced subset of the dataset.
+        Subset: A balanced subset of the datasets.
     """
     try:
         label_to_indices = defaultdict(list)
@@ -73,7 +72,7 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
                 continue
             label_to_indices[label].append(idx)
 
-        print("Label distribution in full dataset:")
+        print("Label distribution in full datasets:")
         for label, indices in sorted(label_to_indices.items()):
             print(f"Class {label}: {len(indices)} samples")
 
@@ -115,10 +114,10 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
 
 def analyze_dataset(dataset: Dataset) -> Counter:
     """
-    Analyze and print the distribution of labels in a dataset.
+    Analyze and print the distribution of labels in a datasets.
 
     Args:
-        dataset: A dataset or Subset containing (x, label) pairs.
+        dataset: A datasets or Subset containing (x, label) pairs.
 
     Returns:
         Counter: A counter object with label frequencies.
@@ -137,10 +136,10 @@ def analyze_dataset(dataset: Dataset) -> Counter:
                 label_counts[int(label)] += 1
         return label_counts
     except Exception as e:
-        raise RuntimeError(f"Error analyzing dataset: {e}")
+        raise RuntimeError(f"Error analyzing datasets: {e}")
 
 
-def compute_class_weights(counter: Counter, num_classes: int = 3) -> torch.Tensor:
+def compute_class_weights(counter: Counter, num_classes: int = 2) -> torch.Tensor:
     """
     Compute inverse frequency-based class weights.
 
@@ -292,10 +291,13 @@ class ClipFrameClassifier(nn.Module):
     Simple feedforward classifier for CLIP embeddings.
     """
 
-    def __init__(self, input_dim: int = 512, num_classes: int = 3):
+    def __init__(self, input_dim: int = 512, num_classes: int = 2):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_dim, 256),
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(256, num_classes)
@@ -312,8 +314,8 @@ def train(device: str, model: nn.Module) -> None:
     Train the CLIP classifier using video frame embeddings and additional metadata features.
     """
     try:
-        # Load and balance dataset
-        full_dataset = VideoFrameClipDataset("dataset/annotations", interval_sec=FPS)
+        # Load and balance datasets
+        full_dataset = VideoFrameClipDataset(ANNOTATIONS_DIR, interval_sec=FPS)
         balanced_dataset = balanced_subset(full_dataset)
         class_counts = analyze_dataset(balanced_dataset)
         class_weights = compute_class_weights(class_counts).to(device)
@@ -341,10 +343,8 @@ def train(device: str, model: nn.Module) -> None:
             for inputs, labels in train_loader:
                 inputs = inputs.to(device).float()
                 labels = labels.to(device).long()
-                embeddings = clip_model.encode_image(inputs)
-                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
-                preds = model(embeddings)
+                preds = model(inputs)
                 loss = loss_fn(preds, labels)
 
                 optimizer.zero_grad()
@@ -370,11 +370,8 @@ def train(device: str, model: nn.Module) -> None:
             with torch.no_grad():
                 for inputs, labels in val_loader:
                     inputs, labels = inputs.to(device).float(), labels.to(device).long()
-                    embeddings = clip_model.encode_image(inputs)
-                    embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-
-                    outputs = model(embeddings)
-                    probs = F.softmax(outputs, dim=1)
+                    outputs = model(inputs)
+                    probs = torch.softmax(outputs, dim=1)
                     max_probs, preds = torch.max(probs, dim=1)
                     all_confidences.extend(max_probs.cpu().tolist())
                     loss = loss_fn(outputs, labels)

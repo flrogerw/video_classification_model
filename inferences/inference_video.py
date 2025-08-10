@@ -4,13 +4,12 @@ import cv2
 from PIL import Image
 from torch import nn
 from collections import defaultdict
-from contact_sheet import VideoContactSheet
 
 MODEL = "models/clip_classifier.pt"
 CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 FPS = 0.3
 TARGET_CLASSES = [1]  # 0 = normal content, 1 = bumper
-CONFIDENCE_THRESHOLD = 0.4 # Minimum confidence before using in calculations
+CONFIDENCE_THRESHOLD = 0.9 # Minimum confidence before using in calculations
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -19,10 +18,13 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Simple Classifier Head
 # ------------------------------
 class ClipFrameClassifier(nn.Module):
-    def __init__(self, input_dim: int = 768, num_classes: int = 2):
+    def __init__(self, input_dim: int = 512, num_classes: int = 2):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_dim, 256),
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(512, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(256, num_classes)
@@ -69,14 +71,20 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
                 frame_idx += 1
                 continue
 
+            # Convert frame to PIL Image and preprocess
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            image_input = preprocess(img).unsqueeze(0).to(device)
+            image_input = preprocess(img).unsqueeze(0).to(device)  # shape: [1, 3, H, W]
 
             with torch.no_grad():
-                embedding = clip_model.encode_image(image_input)
-                embedding = embedding / embedding.norm(dim=-1, keepdim=True)
-                output = model(embedding)
+                # Get embedding from CLIP
+                embedding = clip_model.encode_image(image_input)  # shape: [1, 512]
+                #embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+                # Pass embedding to your classifier model
+                output = model(embedding)  # shape: [1, num_classes]
+
                 probs = torch.softmax(output, dim=1)
+
 
             max_prob, predicted_class = torch.max(probs, dim=1)
 
@@ -120,21 +128,26 @@ def group_segments(timestamped_classes, max_gap=2.0):
 
     return grouped_segments
 
+def seconds_to_min_sec(seconds: float) -> str:
+    total_seconds = int(seconds)
+    minutes = total_seconds // 60
+    secs = total_seconds % 60
+    return f"{minutes}:{secs:02d}"
 
 if __name__ == "__main__":
     model = load_trained_model(MODEL)
     clip_model, preprocess = load_clip_model()
 
-    videos = ["/Volumes/TTBS/time_traveler/60s/63/Petticoat_Junction_Spur_Line_to_Shady_Rest.mp4"] ## 5YhL0iW2kk.json
+    inference_videos = ["/Volumes/TTBS/time_traveler/60s/62/The_Lucy_Show_Vivian_Sues_Lucy.mp4"] ## 5YhL0iW2kk.json
 
-    for video_path in videos:
+    for video_path in inference_videos:
         timestamped_classes = predict_video_segments(video_path, model, clip_model, preprocess)
 
-        segments = group_segments(timestamped_classes, max_gap=2.0)
+        segments = group_segments(timestamped_classes, max_gap=5.0)
 
         label_map = {1: "bumper", 2: "commercial"}
         print(video_path)
         for cls, segs in segments.items():
             print(f"\nDetected {label_map.get(cls, 'unknown')} segments:")
             for start, end in segs:
-                print(f" - From {start:.2f}s to {end:.2f}s")
+                print(f" - From {seconds_to_min_sec(start)} to {seconds_to_min_sec(end)}")

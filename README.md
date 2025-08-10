@@ -15,8 +15,9 @@ This project uses a **CLIP-based model** combined with **video metadata**(option
 - Runs on **CPU**, **GPU** or **MPS** automatically.
 - **Lazy Loading** of annotations for less resources required.
 - **Filters Unwanted Frames** Blacks frames, redundant no motion frames.
-- **Confusion Matrix** Includes a per Epoch matrix (optional)
-- **Accuracy/Confidence Graph** Line graph tp plot accuracy and confidence throughout the process.
+- **Confusion Matrix** Includes a per Epoch matrix. (optional)
+- **Accuracy/Confidence Graph** Line graph to plot accuracy and confidence throughout the process.
+- **Configruable Dataset Balancing** Set the ratio of good to bad samples.
 
 ---
 
@@ -29,17 +30,27 @@ This project uses a **CLIP-based model** combined with **video metadata**(option
 - Pillow
 
 Install dependencies with:
-
 ```bash
 pip install -r requirements.txt
 ```
 Project Structure
 ```bash
-├── datasets
-   └── annotations                # Location of annotation files
-├── meta_clip_classifier.pt       # The trained model
-├── inference_video.py            # Main script (detection + grouping)
-└── README.md                     
+├── classes                             # Location of class files
+│   └── clip_frame_meta_classifier.py   # Metadata aware classifier head
+│   └── contact_sheet.py                # Create contact sheets of frames
+├── datasets                            # Location of datasets files
+│   └── annotations                     # Location of annotation files
+├── inferences                          # Location of inference scripts
+│   └── inference_video.py              # Standard classification inference classifier
+│   └── inference_video_meta.py         # Metadata aware classification inference classifier
+├── models                              # Location of models
+│   └── clip_classifier.pt              # Standard classification trained model
+│   └── meta_clip_classifier.pt         # Metadata aware classification trained model
+├── trainers                            # Location of traing scripts
+│   └── trainer.py                      # Standard classification trainer
+│   └── trainer_meta.py                 # Metadata aware classification trainer
+├── README.md   
+└── requirements.txt                    # Python requirements file                     
 ```
 
 ## Model Training
@@ -48,17 +59,18 @@ You can change detection settings by editing the constants at the top of the scr
 
 ```python
 CONFUSION_MATRIX = False                # Whether to show the confusion matrix
-EPOCH_COUNT = 20                        # Number of times to loop the dataset
+EPOCH_COUNT = 20                        # Number of times to loop the datasets
 FRAME_BUFFER = 0                        # Number of seconds on either side of an annotation timestamp
-FPS = 0.3                               # How often to grab a frame for the dataset
+FPS = 0.3                               # How often to grab a frame for the datasets
 DATA_BATCH_SIZE = 32                    # How many samples per batch to load 
 LABEL_COUNT = 2                         # 0 = normal content, 1 = bumpers
 MODEL = "models/clip_classifier.pt"     # What name to save the model as.
 CLIP_MODEL = "ViT-B/32"                 # Which CLIP model to use ViT-B/32 or ViT-L/14
 TARGET_CLASSES = [1]                    # Which classes to use in the Confusion Matrix
 RETRAIN = False                         # Is this a first run or a retraining run.
-BLACK_THRESHOLD = 1.0   # mean brightness below this = black
-MOTION_THRESHOLD = 2.0   # mean frame difference below this = low motion
+BALANCE_TOLERANCE = 2.0                 # The class tolerance for the balanced datasets.
+BLACK_THRESHOLD = 1.0                   # mean brightness below this = black
+MOTION_THRESHOLD = 20.0                 # mean frame difference below this = low motion
 ```
 
 ### Annotations Format
@@ -71,7 +83,7 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
     "file_path": "/file_to_process.mp4",
     "bumpers": [[1538.73, 1545.93]],
     "commercials": [[395.0, 397.1], [600.0, 602.5]],
-    "content": [[300.0, 320.0], [600.0, 610.0]]
+    "content": [[0,120],[1407.27, 1527.27]]
 }
 ```
 
@@ -85,6 +97,8 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
 - Times are in seconds from the start of the video.
 - `[start, end]` defines the start and end time of each segment.
 - Any list may be empty if no segments of that type exist.
+- The content values are taken from the start and end of the video  
+to capture credits, which often resemble bumpers in training.
 
 ### Training
 #### Running the Classifier With or Without Metadata
@@ -109,20 +123,19 @@ MODEL = "meta_clip_classifier.pt"       # Path to trained model
 CLIP_MODEL = "ViT-B/32"                 # CLIP variant
 FPS = 0.3                               # Seconds between analyzed frames
 TARGET_CLASSES = [1]                    # Classes to detect
-CONFIDENCE_THRESHOLD = 0.4              # Min probability to count as a detection
+CONFIDENCE_THRESHOLD = 0.9              # Min probability to count as a detection
 ```
 #### Default class meanings:  
 0 → Normal content  
-1 → Bumper
+1 → Bumper  
+2 → Commercial
 
-#### Usage  
-Place the trained model file (meta_clip_classifier.pt) in the project folder.
-
+#### Usage
 Run the script with:
 
 ```bash
-python inference_video_meta.py     # with Metadata
-python inference_video.py          # without Metadata
+python inference_video_meta.py        # with Metadata
+python inference_video.py             # without Metadata
 ```
 Edit the videos list in the __main__ block to point to your own video files:
 

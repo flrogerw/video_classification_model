@@ -107,9 +107,10 @@ def predict_video_segments(
                 # 1. Image embedding using CLIP
                 img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 image_input = preprocess(img).unsqueeze(0).to(device).float()
+
                 with torch.no_grad():
                     embedding = clip_model.encode_image(image_input)
-                    embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+                    # embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
                 # 2. Metadata vector
                 meta_dict = {

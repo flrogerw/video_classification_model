@@ -20,7 +20,8 @@ DB_CONFIG = {
 
 ROOT_DIR = '/Volumes/TTBS/time_traveler'
 SAMPLE_COUNT = 2
-ANNOTATIONS_DIR = "dataset/annotations"
+ANNOTATIONS_DIR = "datasets/annotations"
+CONTENT_BUFFER = 120
 
 def random_json_filename(length=10):
     chars = string.ascii_letters + string.digits
@@ -81,12 +82,33 @@ def get_model_annotations(show_id: int):
         if outro:
             bumpers.append(outro)
 
+        content = []
+
+        # Content after intro (30 seconds)
+        if intro and intro[1]:
+            start_content = intro[1]
+            end_content = min(start_content + CONTENT_BUFFER, end_point)
+            content.append([start_content, end_content])
+        else:
+            # No intro, use first 30 seconds of video
+            content.append([0, min(CONTENT_BUFFER, end_point)])
+
+        # Content before outro (30 seconds)
+        if outro and outro[0]:
+            end_content = outro[0]
+            start_content = max(end_content - CONTENT_BUFFER, 0)
+            content.append([start_content, end_content])
+        else:
+            # No outro, use last 30 seconds of video
+            start_last = max(end_point - CONTENT_BUFFER, 0)
+            content.append([start_last, end_point])
+
         annotation = {
             "show_id": x['show_id'],
             "file_path": f"{ROOT_DIR}/{decade}/{year}/{x['episode_file']}",
             "bumpers": bumpers if bumpers else None,
             "commercials": None,
-            "content": [[300.0, 320.0], [600.0, 610.0]]
+            "content": content
             # "commercials": [[300.0, 360.0], [600.0, 660.0]]
         }
         set_annotation_file(annotation)
