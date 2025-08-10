@@ -82,6 +82,7 @@ def get_model_annotations(show_id: int):
             bumpers.append(outro)
 
         annotation = {
+            "show_id": x['show_id'],
             "file_path": f"{ROOT_DIR}/{decade}/{year}/{x['episode_file']}",
             "bumpers": bumpers if bumpers else None,
             "commercials": None,

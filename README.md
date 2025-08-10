@@ -57,6 +57,8 @@ MODEL = "models/clip_classifier.pt"     # What name to save the model as.
 CLIP_MODEL = "ViT-B/32"                 # Which CLIP model to use ViT-B/32 or ViT-L/14
 TARGET_CLASSES = [1]                    # Which classes to use in the Confusion Matrix
 RETRAIN = False                         # Is this a first run or a retraining run.
+BLACK_THRESHOLD = 1.0   # mean brightness below this = black
+MOTION_THRESHOLD = 2.0   # mean frame difference below this = low motion
 ```
 
 ### Annotations Format
@@ -68,6 +70,7 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
 {
     "file_path": "/file_to_process.mp4",
     "bumpers": [[1538.73, 1545.93]],
+    "commercials": [[395.0, 397.1], [600.0, 602.5]],
     "content": [[300.0, 320.0], [600.0, 610.0]]
 }
 ```
@@ -75,6 +78,7 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
 #### Field Descriptions
 - **file_path** *(string)* – Path to the video file.
 - **bumpers** *(array of [start, end])* – Intro/Outro segments in seconds.
+- **commercials** *(array of [start, end])* – Commercial segments in seconds.
 - **content** *(array of [start, end])* – Main program segments in seconds.
 
 #### Notes

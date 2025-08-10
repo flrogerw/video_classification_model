@@ -9,7 +9,7 @@ from contact_sheet import VideoContactSheet
 MODEL = "models/clip_classifier.pt"
 CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
 FPS = 0.3
-TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumper, 2 = commercial
+TARGET_CLASSES = [1]  # 0 = normal content, 1 = bumper
 CONFIDENCE_THRESHOLD = 0.4 # Minimum confidence before using in calculations
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -19,7 +19,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Simple Classifier Head
 # ------------------------------
 class ClipFrameClassifier(nn.Module):
-    def __init__(self, input_dim: int = 768, num_classes: int = 3):
+    def __init__(self, input_dim: int = 768, num_classes: int = 2):
         super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(input_dim, 256),
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     model = load_trained_model(MODEL)
     clip_model, preprocess = load_clip_model()
 
-    videos = ["/Volumes/TTBS/time_traveler/60s/63/My_Favorite_Martian_Rocket_to_Mars.mp4"] ## 5YhL0iW2kk.json
+    videos = ["/Volumes/TTBS/time_traveler/60s/63/Petticoat_Junction_Spur_Line_to_Shady_Rest.mp4"] ## 5YhL0iW2kk.json
 
     for video_path in videos:
         timestamped_classes = predict_video_segments(video_path, model, clip_model, preprocess)

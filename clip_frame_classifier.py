@@ -3,7 +3,7 @@ from torch import nn
 
 
 class CLIPWithMetadataClassifier(nn.Module):
-    def __init__(self, embedding_dim=512, metadata_dim=1, hidden_dim=128, num_classes=3, meta_weight=1.0):
+    def __init__(self, embedding_dim=512, metadata_dim=1, hidden_dim=128, num_classes=2, meta_weight=1.0):
         super(CLIPWithMetadataClassifier, self).__init__()
         self.meta_weight = meta_weight
 

@@ -13,29 +13,31 @@ from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from contact_sheet import VideoContactSheet
 
-CONFUSION_MATRIX = False  # Whether to show the confusion matrix
-EPOCH_COUNT = 20  # Number of times to loop the dataset
-FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
-FPS = 0.3  # How often to grab a frame for the dataset
+CONFUSION_MATRIX = False                # Whether to show the confusion matrix
+EPOCH_COUNT = 10                        # Number of times to loop the dataset
+FRAME_BUFFER = 0                        # Number of seconds on either side of an annotation timestamp
+FPS = 0.3                               # How often to grab a frame for the dataset
 DATA_BATCH_SIZE = 32
-LABEL_COUNT = 3  # 0 = normal content, 1 = bumpers, 2 = commercial
+LABEL_COUNT = 3                         # 0 = normal content, 1 = bumpers, 2 = commercial
 MODEL = "models/clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32" #"ViT-B/32" or ViT-L/14
-TARGET_CLASSES = [1, 2]  # 0 = normal content, 1 = bumpers, 2 = commercial
+CLIP_MODEL = "ViT-B/32"                 #"ViT-B/32" or ViT-L/14
+TARGET_CLASSES = [1]                    # 0 = normal content, 1 = bumpers
 RETRAIN = False
-
+BALANCE_TOLERANCE = 2.0                 # The class tolerance for the balanced dataset.
+BLACK_THRESHOLD = 10.0                  # mean brightness below this = black
+MOTION_THRESHOLD = 20.0                 # mean frame difference below this = low motion
 
 def get_confidence_graph(accuracy: list, confidence: list):
 
-    # Example data
-    epochs = np.arange(1, 21)
-    accuracy = [0.55, 0.62, 0.70, 0.75, 0.78, 0.80, 0.81, 0.82, 0.82, 0.81,
-                0.80, 0.79, 0.78, 0.77, 0.77, 0.76, 0.75, 0.75, 0.74, 0.73]
-    confidence = [0.60, 0.68, 0.75, 0.80, 0.83, 0.85, 0.87, 0.88, 0.89, 0.90,
-                  0.91, 0.91, 0.92, 0.92, 0.93, 0.93, 0.94, 0.94, 0.94, 0.94]
+    if len(accuracy) != len(confidence):
+        print(f"Data length mis-match: Accuracy:{len(accuracy)}, Confidence: {len(confidence)}")
+        return
 
+    # Example data
+    epochs = np.arange(1, len(accuracy) + 1)
     plt.figure(figsize=(8, 5))
     plt.plot(epochs, accuracy, marker='o', label='Accuracy', color='blue')
     plt.plot(epochs, confidence, marker='o', label='Confidence', color='orange')
@@ -49,7 +51,7 @@ def get_confidence_graph(accuracy: list, confidence: list):
     plt.show()
 
 
-def balanced_subset(dataset: Dataset, tolerance: float = 1.0) -> Subset:
+def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> Subset:
     """
     Returns a balanced subset where the number of samples for each class
     is within ±tolerance of the smallest class.
@@ -166,18 +168,15 @@ def get_label(timestamp: float, annotation: Dict[str, Any]) -> int:
 
     Args:
         timestamp: Time in seconds of the current frame.
-        annotation: Dictionary containing 'bumpers', and 'commercials' time segments.
+        annotation: Dictionary containing 'bumpers', and 'contents' time segments.
 
     Returns:
-        Integer label: 1 = bumpers, 2 = commercial, 0 = normal content.
+        Integer label: 1 = bumpers, 0 = normal content.
     """
-    commercials = annotation.get("commercials", [])
     bumpers = annotation.get("bumpers", [])
 
     if bumpers and any(start <= timestamp <= end for start, end in bumpers):
         return 1
-    elif commercials and any(start <= timestamp <= end for start, end in commercials):
-        return 2
     else:
         return 0
 
@@ -193,6 +192,7 @@ class VideoFrameClipDataset(Dataset):
         self.interval_sec = interval_sec
         self.samples: List[Tuple[str, float, int]] = []
         self.device = "cuda" if torch.cuda.is_available() else "mps"
+        self.prev_frame = None
 
         try:
             self.model, self.preprocess = clip.load(CLIP_MODEL, device=self.device)
@@ -227,7 +227,7 @@ class VideoFrameClipDataset(Dataset):
                 continue
 
             time_ranges = []
-            for key in ("bumpers", "commercials", "content"):
+            for key in ("bumpers", "content"):
                 segments = annotation.get(key)
                 if not segments:
                     continue
@@ -277,11 +277,14 @@ class VideoFrameClipDataset(Dataset):
 
         return embedding, torch.tensor(label).to(self.device)
 
-    @staticmethod
-    def is_black_frame(frame: np.ndarray, threshold: int = 1) -> bool:
+    def is_black_frame(self, frame: np.ndarray) -> bool:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        return gray.mean() < threshold
-
+        motion_val = 0.0
+        if self.prev_frame is not None:
+            diff = cv2.absdiff(gray, self.prev_frame)
+            motion_val = float(np.mean(diff))
+        self.prev_frame = gray
+        return True if gray.mean() < BLACK_THRESHOLD or motion_val < MOTION_THRESHOLD else False
 
 
 class ClipFrameClassifier(nn.Module):
@@ -308,12 +311,10 @@ def train(device: str, model: nn.Module) -> None:
     """
     Train the CLIP classifier using video frame embeddings and additional metadata features.
     """
-    #from dataset import VideoFrameClipDataset, balanced_subset, analyze_dataset, compute_class_weights
-
     try:
         # Load and balance dataset
         full_dataset = VideoFrameClipDataset("dataset/annotations", interval_sec=FPS)
-        balanced_dataset = balanced_subset(full_dataset, 3)
+        balanced_dataset = balanced_subset(full_dataset)
         class_counts = analyze_dataset(balanced_dataset)
         class_weights = compute_class_weights(class_counts).to(device)
 
@@ -328,6 +329,9 @@ def train(device: str, model: nn.Module) -> None:
         loss_fn = nn.CrossEntropyLoss(weight=class_weights)
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
+        val_accuracies = []
+        val_confidences = []
+
         for epoch in range(EPOCH_COUNT):
             model.train()
             total_loss = 0
@@ -337,8 +341,10 @@ def train(device: str, model: nn.Module) -> None:
             for inputs, labels in train_loader:
                 inputs = inputs.to(device).float()
                 labels = labels.to(device).long()
+                embeddings = clip_model.encode_image(inputs)
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
-                preds = model(inputs)
+                preds = model(embeddings)
                 loss = loss_fn(preds, labels)
 
                 optimizer.zero_grad()
@@ -359,11 +365,18 @@ def train(device: str, model: nn.Module) -> None:
             val_loss = 0.0
             all_preds = []
             all_labels = []
+            all_confidences = []
 
             with torch.no_grad():
                 for inputs, labels in val_loader:
                     inputs, labels = inputs.to(device).float(), labels.to(device).long()
-                    outputs = model(inputs)
+                    embeddings = clip_model.encode_image(inputs)
+                    embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+
+                    outputs = model(embeddings)
+                    probs = F.softmax(outputs, dim=1)
+                    max_probs, preds = torch.max(probs, dim=1)
+                    all_confidences.extend(max_probs.cpu().tolist())
                     loss = loss_fn(outputs, labels)
 
                     val_loss += loss.item() * inputs.size(0)
@@ -374,8 +387,12 @@ def train(device: str, model: nn.Module) -> None:
                     if CONFUSION_MATRIX:
                         all_preds.extend(predicted.cpu().numpy())
                         all_labels.extend(labels.cpu().numpy())
+                average_confidence = sum(all_confidences) / len(all_confidences)
 
             val_acc = val_correct / val_total if val_total > 0 else 0.0
+            val_accuracies.append(val_acc)
+            val_confidences.append(average_confidence)
+            val_loss /= val_total
             print(f"           Val Loss: {val_loss:.4f} - Val Acc: {val_acc:.2f}")
 
             if CONFUSION_MATRIX and all_preds and all_labels:
@@ -388,12 +405,15 @@ def train(device: str, model: nn.Module) -> None:
                 plt.title(f'Confusion Matrix - Epoch {epoch + 1}')
                 plt.show()
 
+        get_confidence_graph(val_accuracies, val_confidences)
+
     except Exception as e:
         raise RuntimeError(f"Training failed: {e}")
 
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "mps"
+    clip_model, preprocess = clip.load(CLIP_MODEL, device=device)
    #  model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier(input_dim=768).to(device)
     model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier().to(device)
     train(device, model)
