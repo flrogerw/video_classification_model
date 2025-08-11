@@ -36,26 +36,30 @@ pip install -r requirements.txt
 Project Structure
 ```bash
 ├── classes                             # Location of class files
-│   └── clip_frame_meta_classifier.py   # Metadata aware classifier head
-│   └── contact_sheet.py                # Create contact sheets of frames
+│   ├── clip_classifier.py              # Metadata aware classifier head
+│   ├── clip_classifier_meta.py         # Metadata aware classifier head
+│   └── utils.py                        # Utility classes
 ├── datasets                            # Location of datasets files
 │   └── annotations                     # Location of annotation files
 ├── inferences                          # Location of inference scripts
-│   └── inference_video.py              # Standard classification inference classifier
+│   ├── inference_video.py              # Standard classification inference classifier
 │   └── inference_video_meta.py         # Metadata aware classification inference classifier
 ├── models                              # Location of models
-│   └── clip_classifier.pt              # Standard classification trained model
-│   └── meta_clip_classifier.pt         # Metadata aware classification trained model
+│   ├── clip_classifier.pt              # Standard classification trained model
+│   └── clip_classifier_meta.pt         # Metadata aware classification trained model
 ├── trainers                            # Location of traing scripts
-│   └── trainer.py                      # Standard classification trainer
-│   └── trainer_meta.py                 # Metadata aware classification trainer
-├── README.md   
+│   ├── clip_trainer.py                 # Standard classification trainer
+│   └── clip_trainer_meta.py            # Metadata aware classification trainer
+├── README.md 
+├── training_pipeline.py                # Runs the trainng pipeline scripts
+├── inference_pipeline.py               # Runs the inference pipeline scripts
+├── create_dataset.py                   # Create datasets from database queries 
 └── requirements.txt                    # Python requirements file                     
 ```
 
 ## Model Training
 ### Configuration
-You can change detection settings by editing the constants at the top of the script:
+You can change detection settings by editing the constants in the .env file:
 
 ```python
 CONFUSION_MATRIX = False                # Whether to show the confusion matrix
@@ -108,8 +112,8 @@ You can run the frame-based classifier alone or combine it with metadata filteri
 - **With metadata** – Use `trainer_meta.py` to run classification with keeping location metadata.
 
 ```bash
-python trainer.py           # Without metadata.
-python trainer_meta.py      # with metadata.
+python clip_trainer.py           # Without metadata.
+python clip_trainer_meta.py      # with metadata.
 ```
 
 
@@ -145,11 +149,12 @@ inference_videos = [
     "/another/video.mp4"
 ]
 ```
+#### Outcome:
 ```
 Processing: /path/to/video.mp4  
 Detections: [(12.0, 1), (13.0, 1)]   
 Detected bumper segments:  
- - From 12.00s to 13.00s (Duration: 1.00s)  
+ - From 12.00s to 13.00s  
 ```
 ### How It Works
 **Video Reading**  

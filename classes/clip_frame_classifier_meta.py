@@ -3,7 +3,7 @@ Module: clip_with_metadata_classifier
 -------------------------------------
 This module defines a PyTorch neural network that combines CLIP image embeddings
 with auxiliary metadata for classification. The architecture processes the
-embedding and metadata through separate branches before concatenating them
+embedding and metadata through deeper branches before concatenating them
 for the final classification.
 """
 
@@ -15,7 +15,7 @@ from typing import Optional
 
 class CLIPWithMetadataClassifier(nn.Module):
     """
-    A neural network classifier that combines CLIP embeddings with metadata
+    A deeper neural network classifier that combines CLIP embeddings with metadata
     features for improved classification accuracy.
 
     Attributes:
@@ -31,7 +31,8 @@ class CLIPWithMetadataClassifier(nn.Module):
         metadata_dim: int = 1,
         hidden_dim: int = 128,
         num_classes: int = 2,
-        meta_weight: float = 1.0
+        meta_weight: float = 1.0,
+        dropout_prob: float = 0.3
     ) -> None:
         """
         Initialize the classifier.
@@ -42,27 +43,50 @@ class CLIPWithMetadataClassifier(nn.Module):
             hidden_dim: Number of hidden units in intermediate layers.
             num_classes: Number of output classes.
             meta_weight: Weight to scale the metadata branch output.
+            dropout_prob: Dropout probability for regularization.
         """
         super(CLIPWithMetadataClassifier, self).__init__()
         self.meta_weight = meta_weight
 
-        # Branch to process CLIP embeddings
+        # Deeper embedding branch with BatchNorm and Dropout
         self.embedding_branch = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.ReLU()
+            nn.Linear(embedding_dim, hidden_dim * 2),
+            nn.BatchNorm1d(hidden_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
+
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
         )
 
-        # Branch to process metadata
+        # Deeper metadata branch with BatchNorm and Dropout
         self.metadata_branch = nn.Sequential(
             nn.Linear(metadata_dim, hidden_dim),
-            nn.ReLU()
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
+
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
         )
 
-        # Final classification head after concatenating both branches
+        # Final classifier head - deeper with BatchNorm and Dropout
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.Linear(hidden_dim + (hidden_dim // 2), hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, num_classes)
+            nn.Dropout(dropout_prob),
+
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
+
+            nn.Linear(hidden_dim // 2, num_classes)
         )
 
     def forward(self, embedding: Tensor, metadata: Tensor) -> Optional[Tensor]:
@@ -77,23 +101,16 @@ class CLIPWithMetadataClassifier(nn.Module):
             Output logits tensor (batch_size x num_classes) or None if an error occurs.
         """
         try:
-            # Ensure float type for computations
             embedding = embedding.float()
             metadata = metadata.float()
 
-            # Process embedding branch
             emb_out = self.embedding_branch(embedding)
-
-            # Process metadata branch and scale by meta_weight
             meta_out = self.metadata_branch(metadata) * self.meta_weight
 
-            # Concatenate processed features
             combined = torch.cat((emb_out, meta_out), dim=1)
 
-            # Final classification output
             return self.classifier(combined)
 
         except Exception as e:
-            # Log the error and return None if something goes wrong
             print(f"[ERROR] Forward pass failed: {e}")
             return None

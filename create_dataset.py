@@ -1,27 +1,23 @@
+import cv2
+import psycopg2
 import json
 import os
 import random
-import re
-import shutil
 import string
-from datetime import datetime
-
-import cv2
-import psycopg2
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
+# Load .env file
+load_dotenv()
+
 DB_CONFIG = {
-    'dbname': 'time_traveler',
-    'user': 'postgres',
-    'password': 'm06Ar14u',
-    'host': '192.168.1.201',
-    'port': 5432,
+    'dbname': os.getenv("DB_NAME"),
+    'user': os.getenv("DB_USER"),
+    'password': os.getenv("DB_PASSWORD"),
+    'host': os.getenv("DB_HOST"),
+    'port': os.getenv("DB_PORT"),
 }
 
-ROOT_DIR = '/Volumes/TTBS/time_traveler'
-SAMPLE_COUNT = 2
-ANNOTATIONS_DIR = "datasets/annotations"
-CONTENT_BUFFER = 120
 
 def random_json_filename(length=10):
     chars = string.ascii_letters + string.digits
@@ -30,8 +26,8 @@ def random_json_filename(length=10):
 
 
 def set_annotation_file(annotation: dict):
-    os.makedirs(ANNOTATIONS_DIR, exist_ok=True)
-    output_path = os.path.join(ANNOTATIONS_DIR, random_json_filename())
+    os.makedirs(os.getenv("ANNOTATIONS_DIR"), exist_ok=True)
+    output_path = os.path.join(os.getenv("ANNOTATIONS_DIR"), random_json_filename())
 
     # Write to JSON file
     with open(output_path, "w") as json_file:
@@ -57,7 +53,7 @@ def get_db_filenames(show_id: int, limit: int = 10):
         SELECT *, ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY episode_airdate) AS rn
         FROM episodes
         WHERE (end_point != FLOOR(end_point) OR start_point != FLOOR(start_point))  AND episode_airdate < '1990-01-01')
-        SELECT * FROM ranked WHERE rn <= {SAMPLE_COUNT};"""
+        SELECT * FROM ranked WHERE rn <= {int(os.getenv("SAMPLE_COUNT"))};"""
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute(query, (show_id, limit))
@@ -68,11 +64,11 @@ def get_db_filenames(show_id: int, limit: int = 10):
 
 
 def get_model_annotations(show_id: int):
-    db_filenames = get_db_filenames(show_id)
+    db_filenames = get_db_filenames(show_id=show_id)
     for x in db_filenames:
         year = int(x['episode_airdate'].strftime("%y"))
         decade = f"{(year // 10) % 10}0s"
-        end_point = get_video_length(f"{ROOT_DIR}/{decade}/{year}/{x['episode_file']}")
+        end_point = get_video_length(f'{os.getenv("ROOT_DIR")}/{decade}/{year}/{x["episode_file"]}')
         outro = [x['end_point'], end_point] if x['end_point'] < (end_point - 2) else None
         intro = [0, x['start_point']] if x['start_point'] > 3 else None
 
@@ -87,25 +83,25 @@ def get_model_annotations(show_id: int):
         # Content after intro (30 seconds)
         if intro and intro[1]:
             start_content = intro[1]
-            end_content = min(start_content + CONTENT_BUFFER, end_point)
+            end_content = min(start_content + int(os.getenv("CONTENT_BUFFER")), end_point)
             content.append([start_content, end_content])
         else:
             # No intro, use first 30 seconds of video
-            content.append([0, min(CONTENT_BUFFER, end_point)])
+            content.append([0, min(int(os.getenv("CONTENT_BUFFER")), end_point)])
 
         # Content before outro (30 seconds)
         if outro and outro[0]:
             end_content = outro[0]
-            start_content = max(end_content - CONTENT_BUFFER, 0)
+            start_content = max(end_content - int(os.getenv("CONTENT_BUFFER")), 0)
             content.append([start_content, end_content])
         else:
             # No outro, use last 30 seconds of video
-            start_last = max(end_point - CONTENT_BUFFER, 0)
+            start_last = max(end_point - int(os.getenv("CONTENT_BUFFER")), 0)
             content.append([start_last, end_point])
 
         annotation = {
             "show_id": x['show_id'],
-            "file_path": f"{ROOT_DIR}/{decade}/{year}/{x['episode_file']}",
+            "file_path": f"{os.getenv('ROOT_DIR')}/{decade}/{year}/{x['episode_file']}",
             "bumpers": bumpers if bumpers else None,
             "commercials": None,
             "content": content

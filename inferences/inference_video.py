@@ -1,50 +1,27 @@
+import os
 import torch
 import clip
 import cv2
 from PIL import Image
-from torch import nn
 from collections import defaultdict
+from classes.clip_classifier import ClipFrameClassifier
+from dotenv import load_dotenv
 
-MODEL = "models/clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32" #"ViT-B/32" # ViT-L/14
-FPS = 0.3
-TARGET_CLASSES = [1]  # 0 = normal content, 1 = bumper
-CONFIDENCE_THRESHOLD = 0.9 # Minimum confidence before using in calculations
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-# ------------------------------
-# Simple Classifier Head
-# ------------------------------
-class ClipFrameClassifier(nn.Module):
-    def __init__(self, input_dim: int = 512, num_classes: int = 2):
-        super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, num_classes)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.fc(x)
-
+# Load .env file
+load_dotenv()
 
 # Load trained classifier
-def load_trained_model(path=MODEL):
+def load_trained_model(device, path: str | None = None):
     model = torch.load(path, map_location=device, weights_only=False)
     model.eval()
     return model
 
 
 # Load CLIP
-def load_clip_model():
-    clip_model, preprocess = clip.load(CLIP_MODEL, device=device)
+def load_clip_model(device):
+    clip_model, preprocess = clip.load(os.getenv("CLIP_MODEL"), device=device)
     return clip_model, preprocess
+
 
 def is_black_frame(frame, threshold=1):
     """
@@ -54,8 +31,9 @@ def is_black_frame(frame, threshold=1):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     return gray.mean() < threshold
 
+
 # Predict segments in video and collect (timestamp, predicted_class)
-def predict_video_segments(video_path, model, clip_model, preprocess, target_classes=TARGET_CLASSES):
+def predict_video_segments(video_path, model, clip_model, preprocess, device, target_classes: None | list = None):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     timestamped_classes = []
@@ -63,10 +41,10 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
     frame_idx = 0
     success, frame = cap.read()
     while success:
-        if frame_idx % int(fps * FPS) == 0:
+        if frame_idx % int(fps * float(os.getenv("FPS"))) == 0:
 
             # ---- Skip black frames ----
-            if is_black_frame(frame, threshold=10):
+            if is_black_frame(frame, threshold=1):
                 success, frame = cap.read()
                 frame_idx += 1
                 continue
@@ -78,19 +56,18 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
             with torch.no_grad():
                 # Get embedding from CLIP
                 embedding = clip_model.encode_image(image_input)  # shape: [1, 512]
-                #embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+                # embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
                 # Pass embedding to your classifier model
                 output = model(embedding)  # shape: [1, num_classes]
 
                 probs = torch.softmax(output, dim=1)
 
-
             max_prob, predicted_class = torch.max(probs, dim=1)
 
             print(max_prob.item(), " :: ", predicted_class.item(), " :: ", frame_idx / fps)
 
-            if predicted_class.item() in target_classes and max_prob.item() > CONFIDENCE_THRESHOLD:
+            if predicted_class.item() in target_classes and max_prob.item() > float(os.getenv("CONFIDENCE_THRESHOLD")):
                 timestamp = frame_idx / fps
                 timestamped_classes.append((timestamp, predicted_class.item()))
 
@@ -102,10 +79,23 @@ def predict_video_segments(video_path, model, clip_model, preprocess, target_cla
 
 
 # Group timestamps by class, then merge close timestamps into segments
-def group_segments(timestamped_classes, max_gap=2.0):
+def group_segments(timestamped_classes: list[tuple[float, str]], max_gap: float = 5.0) -> dict[
+    str, list[tuple[float, float]]]:
+    """
+    Groups timestamps by class into continuous segments, ignoring any
+    segments that are 1 second or less in duration.
+
+    Args:
+        timestamped_classes: List of (timestamp, class) tuples.
+        max_gap: Maximum allowed gap (in seconds) between consecutive timestamps
+                 to consider them part of the same segment.
+
+    Returns:
+        Dictionary mapping class labels to lists of (start_time, end_time) segments.
+    """
     class_groups = defaultdict(list)
 
-    # Separate timestamps by class
+    # Group timestamps by class
     for ts, cls in timestamped_classes:
         class_groups[cls].append(ts)
 
@@ -119,14 +109,19 @@ def group_segments(timestamped_classes, max_gap=2.0):
 
         for t in timestamps[1:]:
             if t - prev > max_gap:
-                segments.append((start, prev))
+                if prev - start > 1.0:  # Ignore <= 1 second segments
+                    segments.append((start, prev))
                 start = t
             prev = t
 
-        segments.append((start, prev))
+        # Add last segment if > 1 second
+        if prev - start > 1.0:
+            segments.append((start, prev))
+
         grouped_segments[cls] = segments
 
     return grouped_segments
+
 
 def seconds_to_min_sec(seconds: float) -> str:
     total_seconds = int(seconds)
@@ -134,20 +129,4 @@ def seconds_to_min_sec(seconds: float) -> str:
     secs = total_seconds % 60
     return f"{minutes}:{secs:02d}"
 
-if __name__ == "__main__":
-    model = load_trained_model(MODEL)
-    clip_model, preprocess = load_clip_model()
 
-    inference_videos = ["/Volumes/TTBS/time_traveler/60s/62/The_Lucy_Show_Vivian_Sues_Lucy.mp4"] ## 5YhL0iW2kk.json
-
-    for video_path in inference_videos:
-        timestamped_classes = predict_video_segments(video_path, model, clip_model, preprocess)
-
-        segments = group_segments(timestamped_classes, max_gap=5.0)
-
-        label_map = {1: "bumper", 2: "commercial"}
-        print(video_path)
-        for cls, segs in segments.items():
-            print(f"\nDetected {label_map.get(cls, 'unknown')} segments:")
-            for start, end in segs:
-                print(f" - From {seconds_to_min_sec(start)} to {seconds_to_min_sec(end)}")

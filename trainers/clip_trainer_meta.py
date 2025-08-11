@@ -13,21 +13,23 @@ from torch import nn
 from torch.utils.data import Dataset, random_split, DataLoader, Subset
 from typing import List, Tuple, Dict, Any
 from sklearn.metrics import confusion_matrix
-from datasets.create_dataset import ANNOTATIONS_DIR
+from classes.clip_frame_classifier_meta import CLIPWithMetadataClassifier
+from create_dataset import ANNOTATIONS_DIR
 
-CONFUSION_MATRIX = False                # Whether to show the confusion matrix
-EPOCH_COUNT = 10                        # Number of times to loop the datasets
-FRAME_BUFFER = 0                        # Number of seconds on either side of an annotation timestamp
-FPS = 0.3                               # How often to grab a frame for the datasets
+CONFUSION_MATRIX = False  # Whether to show the confusion matrix
+EPOCH_COUNT = 10  # Number of times to loop the datasets
+FRAME_BUFFER = 0  # Number of seconds on either side of an annotation timestamp
+FPS = 0.3  # How often to grab a frame for the datasets
 DATA_BATCH_SIZE = 32
-LABEL_COUNT = 2                         # 0 = normal content, 1 = bumpers, 2 = commercial
-MODEL = "models/clip_classifier.pt"
-CLIP_MODEL = "ViT-B/32"                 #"ViT-B/32" or ViT-L/14
-TARGET_CLASSES = [1]                    # 0 = normal content, 1 = bumpers
+LABEL_COUNT = 2  # 0 = normal content, 1 = bumpers
+MODEL = "models/meta_clip_classifier.pt"
+CLIP_MODEL = "ViT-B/32" # ViT-L/14 ViT-B/32
+TARGET_CLASSES = [1]  # 0 = normal content, 1 = bumpers
 RETRAIN = False
 BALANCE_TOLERANCE = 4.0                 # The class tolerance for the balanced datasets.
 BLACK_THRESHOLD = 1.0                   # mean brightness below this = black
-MOTION_THRESHOLD = 20.0                 # mean frame difference below this = low motion
+MOTION_THRESHOLD = 2.0                 # mean frame difference below this = low motion
+
 
 def get_confidence_graph(accuracy: list, confidence: list):
 
@@ -49,14 +51,13 @@ def get_confidence_graph(accuracy: list, confidence: list):
     plt.legend()
     plt.show()
 
-
 def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> Subset:
     """
     Returns a balanced subset where the number of samples for each class
     is within ±tolerance of the smallest class.
 
     Args:
-        dataset: Input datasets (must return (x, label) pairs).
+        dataset: Input datasets (must return (image, metadata, label) tuples).
         tolerance: Allowed deviation from the smallest class (e.g., 0.1 = 10%).
 
     Returns:
@@ -66,7 +67,14 @@ def balanced_subset(dataset: Dataset, tolerance: float = BALANCE_TOLERANCE) -> S
         label_to_indices = defaultdict(list)
 
         for idx in range(len(dataset)):
-            _, label = dataset[idx]
+            sample = dataset[idx]
+            if len(sample) == 3:
+                _, label, _ = sample
+            elif len(sample) == 2:
+                _, label = sample
+            else:
+                raise ValueError(f"Unexpected datasets sample format at index {idx}: {sample}")
+
             label = int(label)
             if label < 0:
                 continue
@@ -128,7 +136,7 @@ def analyze_dataset(dataset: Dataset) -> Counter:
             indices = dataset.indices
             base_dataset = dataset.dataset
             for idx in indices:
-                _, label = base_dataset[idx]
+                _, label, _ = base_dataset[idx]
                 label_counts[int(label)] += 1
         else:
             for idx in range(len(dataset)):
@@ -167,29 +175,27 @@ def get_label(timestamp: float, annotation: Dict[str, Any]) -> int:
 
     Args:
         timestamp: Time in seconds of the current frame.
-        annotation: Dictionary containing 'bumpers', and 'contents' time segments.
+        annotation: Dictionary containing 'bumpers', and 'commercials' time segments.
 
     Returns:
-        Integer label: 1 = bumpers, 0 = normal content.
+        Integer label: 1 = bumpers, 2 = commercial, 0 = normal content.
     """
+    commercials = annotation.get("commercials", [])
     bumpers = annotation.get("bumpers", [])
 
     if bumpers and any(start <= timestamp <= end for start, end in bumpers):
         return 1
+    elif commercials and any(start <= timestamp <= end for start, end in commercials):
+        return 2
     else:
         return 0
 
 
 class VideoFrameClipDataset(Dataset):
-    """
-    Lazily loads video frames and computes CLIP embeddings on the fly.
-    Stores only metadata (video path, timestamp, label) to minimize memory usage.
-    """
-
     def __init__(self, annotation_dir: str, interval_sec: float = 1.0):
         self.annotation_dir = annotation_dir
         self.interval_sec = interval_sec
-        self.samples: List[Tuple[str, float, int]] = []
+        self.samples: List[Dict] = []
         self.device = "cuda" if torch.cuda.is_available() else "mps"
         self.prev_frame = None
 
@@ -202,6 +208,7 @@ class VideoFrameClipDataset(Dataset):
 
         for annotation_file in annotation_files:
             annotation_path = os.path.join(annotation_dir, annotation_file)
+
             try:
                 with open(annotation_path, "r") as f:
                     annotation = json.load(f)
@@ -210,6 +217,7 @@ class VideoFrameClipDataset(Dataset):
                 continue
 
             video_file = annotation.get("file_path")
+
             if not video_file or not os.path.exists(video_file):
                 print(f"Skipping missing video: {video_file}")
                 continue
@@ -219,42 +227,63 @@ class VideoFrameClipDataset(Dataset):
                 fps = cap.get(cv2.CAP_PROP_FPS)
                 if fps <= 0:
                     raise ValueError("Invalid FPS")
-                duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
+                total_duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
                 cap.release()
             except Exception as e:
                 print(f"Error probing video {video_file}: {e}")
                 continue
 
             time_ranges = []
+
             for key in ("bumpers", "content"):
                 segments = annotation.get(key)
+
                 if not segments:
                     continue
-                if isinstance(segments[0], (int, float)):
+
+                if isinstance(segments, list) and all(isinstance(x, (int, float)) for x in segments):
                     segments = [segments]
-                for start, end in segments:
+
+                for seg in segments:
+                    if not isinstance(seg, (list, tuple)) or len(seg) != 2:
+                        continue
+
+                    start, end = seg
                     start = max(0, (start or 0) - FRAME_BUFFER)
-                    end = (end or 0) + FRAME_BUFFER
+                    end = (end or 0) + FRAME_BUFFER  # <<---- WRONG
                     time_ranges.append((start, end))
 
             if not time_ranges:
                 continue
-            #vcs = VideoContactSheet(video_file, cols=5)
+
             t = 0.0
-            epsilon = 0.01  # small margin to stay within video bounds
-            while t < (duration - epsilon):
+            epsilon = 0.01
+            while t < (total_duration - epsilon):
                 if any(start <= t <= end for start, end in time_ranges):
-                    #vcs.get_frame_at(t)
                     label = get_label(t, annotation)
-                    self.samples.append((video_file, t, label))
+                    self.samples.append({
+                        "video_path": video_file,
+                        "timestamp": t,
+                        "video_duration": total_duration,
+                        "label": label
+                    })
                 t += self.interval_sec
-            #vcs.show_contact_sheet()
+
+    @staticmethod
+    def normalize(value, min_val, max_val):
+        if max_val == min_val:
+            return 0.0
+        return (value - min_val) / (max_val - min_val)
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        video_path, timestamp, label = self.samples[idx]
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int, Dict]:
+        sample = self.samples[idx]
+        video_path = sample["video_path"]
+        video_duration = sample['video_duration']
+        timestamp = sample["timestamp"]
+        label = sample["label"]
 
         cap = cv2.VideoCapture(video_path)
         cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
@@ -265,8 +294,7 @@ class VideoFrameClipDataset(Dataset):
             raise RuntimeError(f"Could not read frame at {timestamp}s in {video_path}")
 
         if self.is_black_frame(frame):
-            # Skip by returning an empty vector and a dummy label
-            return torch.zeros((512,), device=self.device), torch.tensor(-1).to(self.device)
+            return torch.zeros((512,), device=self.device), -1, {"relative_position": 0.0}
 
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         image_tensor = self.preprocess(image).to(self.device)
@@ -274,7 +302,11 @@ class VideoFrameClipDataset(Dataset):
         with torch.no_grad():
             embedding = self.model.encode_image(image_tensor.unsqueeze(0)).squeeze(0)
 
-        return embedding, torch.tensor(label).to(self.device)
+        metadata = {
+            "relative_position": timestamp / video_duration if video_duration > 0 else 0.0
+        }
+
+        return embedding, label, metadata
 
     def is_black_frame(self, frame: np.ndarray) -> bool:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -286,29 +318,6 @@ class VideoFrameClipDataset(Dataset):
         return True if gray.mean() < BLACK_THRESHOLD or motion_val < MOTION_THRESHOLD else False
 
 
-class ClipFrameClassifier(nn.Module):
-    """
-    Simple feedforward classifier for CLIP embeddings.
-    """
-
-    def __init__(self, input_dim: int = 512, num_classes: int = 2):
-        super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, num_classes)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.fc(x)
-
-# ------------------------------
-# Training Loop
-# ------------------------------
 def train(device: str, model: nn.Module) -> None:
     """
     Train the CLIP classifier using video frame embeddings and additional metadata features.
@@ -325,10 +334,13 @@ def train(device: str, model: nn.Module) -> None:
         val_size = len(balanced_dataset) - train_size
         train_dataset, val_dataset = random_split(balanced_dataset, [train_size, val_size])
 
-        train_loader = DataLoader(train_dataset, batch_size=DATA_BATCH_SIZE, shuffle=True, pin_memory=False)
-        val_loader = DataLoader(val_dataset, batch_size=DATA_BATCH_SIZE, pin_memory=False)
+        train_loader = DataLoader(train_dataset, batch_size=DATA_BATCH_SIZE, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=DATA_BATCH_SIZE)
 
         loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+
+        # Slightly lower learning rate(e.g., 1e-4 → 5e-5)
+        # Use AdamW instead of Adam for better generalization.
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
         val_accuracies = []
@@ -336,15 +348,18 @@ def train(device: str, model: nn.Module) -> None:
 
         for epoch in range(EPOCH_COUNT):
             model.train()
-            total_loss = 0
+            total_loss = 0.0
             correct = 0
             total = 0
 
-            for inputs, labels in train_loader:
-                inputs = inputs.to(device).float()
+            for image_inputs, labels, metadata_inputs in train_loader:
+                image_inputs = image_inputs.to(device).float()
                 labels = labels.to(device).long()
+                meta_tensor = torch.cat(
+                    [metadata_inputs[k].unsqueeze(1).float().to(device) for k in metadata_inputs],
+                    dim=1)
 
-                preds = model(inputs)
+                preds = model(image_inputs, meta_tensor)
                 loss = loss_fn(preds, labels)
 
                 optimizer.zero_grad()
@@ -368,15 +383,20 @@ def train(device: str, model: nn.Module) -> None:
             all_confidences = []
 
             with torch.no_grad():
-                for inputs, labels in val_loader:
-                    inputs, labels = inputs.to(device).float(), labels.to(device).long()
-                    outputs = model(inputs)
+                for image_inputs, labels, metadata_inputs in val_loader:
+                    image_inputs = image_inputs.to(device).float()
+                    meta_tensor = torch.cat(
+                        [metadata_inputs[k].unsqueeze(1).float().to(device) for k in metadata_inputs],
+                        dim=1)
+                    labels = labels.to(device).long()
+
+                    outputs = model(image_inputs, meta_tensor)
                     probs = torch.softmax(outputs, dim=1)
                     max_probs, preds = torch.max(probs, dim=1)
                     all_confidences.extend(max_probs.cpu().tolist())
                     loss = loss_fn(outputs, labels)
 
-                    val_loss += loss.item() * inputs.size(0)
+                    val_loss += loss.item() * image_inputs.size(0)
                     _, predicted = outputs.max(1)
                     val_correct += (predicted == labels).sum().item()
                     val_total += labels.size(0)
@@ -403,16 +423,14 @@ def train(device: str, model: nn.Module) -> None:
                 plt.show()
 
         get_confidence_graph(val_accuracies, val_confidences)
-
     except Exception as e:
         raise RuntimeError(f"Training failed: {e}")
 
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "mps"
-    clip_model, preprocess = clip.load(CLIP_MODEL, device=device)
-   #  model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier(input_dim=768).to(device)
-    model = torch.load(MODEL, weights_only=False) if RETRAIN else ClipFrameClassifier().to(device)
+    #  model = torch.load(MODEL, weights_only=False) if RETRAIN else CLIPWithMetadataClassifier(input_dim=768).to(device)
+    model = torch.load(MODEL, weights_only=False) if RETRAIN else CLIPWithMetadataClassifier(meta_weight=0.5).to(device)
     train(device, model)
     save_model = f"retrained_{MODEL}" if RETRAIN else MODEL
     torch.save(model, save_model)

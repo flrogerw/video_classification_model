@@ -139,7 +139,7 @@ def predict_video_segments(
     return timestamped_classes
 
 
-def group_segments(timestamped_classes: list[Tuple[float, int]], max_gap: float = 2.0) -> dict[int, list[dict[str, float]]]:
+def group_segments(timestamped_classes: list[Tuple[float, int]], max_gap: float = 5.0) -> dict[int, list[dict[str, float]]]:
     """
     Groups timestamps into contiguous segments for each class.
 

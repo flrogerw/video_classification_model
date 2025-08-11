@@ -1,18 +1,32 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import cv2
+import math
+from sklearn.metrics import confusion_matrix
+from typing import Union, List, Optional
+from PIL import Image
+
+
+
 """
 Module: video_contact_sheet
 ---------------------------
 This module defines the VideoContactSheet class for extracting frames from
 a video file and compiling them into a visual contact sheet. It supports
 extracting specific frames by timestamp or evenly spaced frames over an interval.
+
+    vcs = VideoContactSheet(video_path, cols=5)
+
+    # Extract specific frame
+    vcs.get_frame_at(5.5)
+
+    # Extract frames at interval
+    # vcs.extract_frames_interval(start_sec=0, end_sec=22.7, interval_sec=0.3)
+
+    # Display contact sheet
+    vcs.show_contact_sheet()
 """
-
-import math
-from typing import Union, List, Optional
-
-import cv2
-from PIL import Image
-import matplotlib.pyplot as plt
-
 
 class VideoContactSheet:
     """
@@ -156,16 +170,105 @@ class VideoContactSheet:
             print(f"[ERROR] Failed to display contact sheet: {e}")
 
 
-# --- Example Usage ---
-if __name__ == "__main__":
-    video_path = "/Volumes/TTBS/time_traveler/70s/70/Night_Gallery_The_Dead_ManThe_Housekeeper.mp4"
-    vcs = VideoContactSheet(video_path, cols=5)
+class ConfusionMatrix:
+    """
+    Class to compute and plot a confusion matrix using true and predicted labels.
+    """
 
-    # Extract specific frame
-    vcs.get_frame_at(5.5)
+    def __init__(self, target_classes: Optional[List[str]] = None):
+        """
+        Initialize the plotter.
 
-    # Extract frames at interval
-    # vcs.extract_frames_interval(start_sec=0, end_sec=22.7, interval_sec=0.3)
+        Args:
+            target_classes: List of class names or labels for axis ticks.
+        """
+        self.target_classes = target_classes or []
+        self.true_labels = []
+        self.predicted_labels = []
 
-    # Display contact sheet
-    vcs.show_contact_sheet()
+    def set_labels(self, true_labels: List[int], predicted_labels: List[int]) -> None:
+        """
+        Set the true and predicted labels.
+
+        Args:
+            true_labels: List of ground truth labels.
+            predicted_labels: List of predicted labels by the model.
+        """
+        self.true_labels = true_labels
+        self.predicted_labels = predicted_labels
+
+    def plot(self, epoch: int = 0) -> None:
+        """
+        Plot the confusion matrix heatmap.
+
+        Args:
+            epoch: Epoch number for the plot title.
+        """
+        if not self.true_labels or not self.predicted_labels:
+            print("True labels or predicted labels are empty. Cannot plot confusion matrix.")
+            return
+
+        cm = confusion_matrix(self.true_labels, self.predicted_labels)
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            xticklabels=self.target_classes,
+            yticklabels=self.target_classes
+        )
+        plt.xlabel('Predicted')
+        plt.ylabel('Actual')
+        plt.title(f'Confusion Matrix - Epoch {epoch + 1}')
+        plt.show()
+
+
+
+class ConfidenceGraph:
+    """
+    Class to plot accuracy and confidence over training epochs.
+    """
+
+    def __init__(self, accuracy: List[float] = None, confidence: List[float] = None):
+        """
+        Initialize with optional accuracy and confidence data.
+
+        Args:
+            accuracy: List of accuracy values per epoch.
+            confidence: List of confidence values per epoch.
+        """
+        self.accuracy = accuracy or []
+        self.confidence = confidence or []
+
+    def set_data(self, accuracy: List[float], confidence: List[float]) -> None:
+        """
+        Set the accuracy and confidence data.
+
+        Args:
+            accuracy: List of accuracy values.
+            confidence: List of confidence values.
+        """
+        self.accuracy = accuracy
+        self.confidence = confidence
+
+    def plot(self) -> None:
+        """
+        Plot the accuracy and confidence graph.
+        """
+        if len(self.accuracy) != len(self.confidence):
+            print(f"Data length mis-match: Accuracy:{len(self.accuracy)}, Confidence: {len(self.confidence)}")
+            return
+
+        epochs = np.arange(1, len(self.accuracy) + 1)
+        plt.figure(figsize=(8, 5))
+        plt.plot(epochs, self.accuracy, marker='o', label='Accuracy', color='blue')
+        plt.plot(epochs, self.confidence, marker='o', label='Confidence', color='orange')
+        plt.axvline(8, linestyle='--', color='gray', alpha=0.5, label='Potential Early Stop')
+        plt.title('Accuracy vs Confidence Over Epochs')
+        plt.xlabel('Epochs')
+        plt.ylabel('Value')
+        plt.ylim(0.5, 1.0)
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend()
+        plt.show()
