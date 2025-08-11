@@ -53,7 +53,7 @@ Project Structure
 ├── README.md 
 ├── training_pipeline.py                # Runs the trainng pipeline scripts
 ├── inference_pipeline.py               # Runs the inference pipeline scripts
-├── create_dataset.py                   # Create datasets from database queries 
+├── dataset_pipeline.py                 # Create datasets from database queries 
 └── requirements.txt                    # Python requirements file                     
 ```
 
