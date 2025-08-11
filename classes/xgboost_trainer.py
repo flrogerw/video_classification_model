@@ -25,14 +25,17 @@ class SegmentMetaTrainer:
                 class_id = self.class_to_id(label_name)
                 for seg in (data.get(label_name) or []):
                     start_time, end_time = seg
-                    rel_start, rel_end = self.normalize_times(start_time, end_time, video_duration)
-                    rel_duration = (end_time - start_time) / video_duration
-                    normalized_duration = min(video_duration, 7200) / 7200
-                    features.append([normalized_duration, rel_start, rel_end, rel_duration])
-                    print([normalized_duration, rel_start, rel_end, rel_duration])
+                    seg_features = self.get_features(start_time, end_time, video_duration)
+                    features.append(seg_features)
                     labels.append(class_id)
 
         return np.array(features), np.array(labels)
+    @staticmethod
+    def get_features(start_time: float, end_time: float, video_duration: float) -> list:
+        rel_start, rel_end = SegmentMetaTrainer.normalize_times(start_time, end_time, video_duration)
+        rel_duration = (end_time - start_time) / video_duration
+        normalized_duration = min(video_duration, 7200) / 7200
+        return [normalized_duration, rel_start, rel_end, rel_duration]
 
     @staticmethod
     def class_to_id(label):
@@ -71,7 +74,7 @@ class SegmentMetaTrainer:
 
         params = {
             'objective': 'multi:softmax',
-            'num_class': 3,
+            'num_class': 2,
             'eval_metric': 'mlogloss',
             'max_depth': 4,
             'eta': 0.1,

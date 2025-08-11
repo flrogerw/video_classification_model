@@ -36,24 +36,20 @@ pip install -r requirements.txt
 Project Structure
 ```bash
 ├── classes                             # Location of class files
-│   ├── clip_classifier.py              # Metadata aware classifier head
-│   ├── clip_classifier_meta.py         # Metadata aware classifier head
-│   └── utils.py                        # Utility classes
+│   ├── video_annotations.py            # Generates annotation files.
+│   ├── video_classifier.py             # Metadata aware classifier head
+│   ├── video_inference.py              # Standard classification inference classifier
+│   ├── video_trainer.py                # Standard classification trainer
+│   ├── video_utils.py                  # Utility classes
+│   └── xgboost_trainer.py              # XGBoost training class
 ├── datasets                            # Location of datasets files
 │   └── annotations                     # Location of annotation files
-├── inferences                          # Location of inference scripts
-│   ├── inference_video.py              # Standard classification inference classifier
-│   └── inference_video_meta.py         # Metadata aware classification inference classifier
 ├── models                              # Location of models
 │   ├── clip_classifier.pt              # Standard classification trained model
 │   └── clip_classifier_meta.pt         # Metadata aware classification trained model
-├── trainers                            # Location of traing scripts
-│   ├── clip_trainer.py                 # Standard classification trainer
-│   └── clip_trainer_meta.py            # Metadata aware classification trainer
 ├── README.md 
-├── training_pipeline.py                # Runs the trainng pipeline scripts
-├── inference_pipeline.py               # Runs the inference pipeline scripts
-├── dataset_pipeline.py                 # Create datasets from database queries 
+├── pipeline_training.py                # Runs the trainng pipeline scripts
+├── pipeline_inference.py               # Runs the inference pipeline scripts
 └── requirements.txt                    # Python requirements file                     
 ```
 
@@ -105,17 +101,10 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
 to capture credits, which often resemble bumpers in training.
 
 ### Training
-#### Running the Classifier With or Without Metadata
-
-You can run the frame-based classifier alone or combine it with metadata filtering.  
-- **Without metadata** – Use `trainer_pipeline.py` to run classification without keeping location metadata.  
-- **With metadata** – Use `trainer_pipeline_meta.py` to run classification with keeping location metadata.
 
 ```bash
-python trainer_pipeline.py           # Without metadata.
-python trainer_pipeline_meta.py      # with metadata.
+python trainer_pipeline.py
 ```
-
 
 ## Video Inference
 
@@ -138,8 +127,7 @@ CONFIDENCE_THRESHOLD = 0.9              # Min probability to count as a detectio
 Run the script with:
 
 ```bash
-python inference_pipeline_meta.py        # with Metadata
-python inference_pipeline.py             # without Metadata
+python pipeline_inference.py
 ```
 Edit the videos list in the __main__ block to point to your own video files:
 
