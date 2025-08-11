@@ -108,7 +108,7 @@ def get_model_annotations(show_id: int):
             # "commercials": [[300.0, 360.0], [600.0, 660.0]]
         }
         set_annotation_file(annotation)
-
+    print(f"Total Records: {len(db_filenames)}")
 
 if __name__ == "__main__":
     get_model_annotations(5)

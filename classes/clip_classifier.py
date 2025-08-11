@@ -330,7 +330,8 @@ class VideoFrameClipDataset(Dataset):
         except Exception as e:
             raise RuntimeError(f"Failed to create balanced subset: {e}")
 
-    def get_label(self, timestamp: float, annotation: dict[str, Any]) -> int:
+    @staticmethod
+    def get_label(timestamp: float, annotation: dict[str, Any]) -> int:
         """
         Get label for a timestamp based on annotation.
 

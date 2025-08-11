@@ -1,13 +1,13 @@
-# Video Segment Classifier (CLIP + Metadata)
+# Video Segment Classifier (CLIP + XGBoost)
 
-This project uses a **CLIP-based model** combined with **video metadata**(optional) to detect and classify segments in video files.  It is designed for tasks such as automatically identifying **intros**, **outros** and other custom-defined video segments.
+This project uses a **CLIP-based model** combined with **XGBoost** to detect and classify segments in video files.  It is designed for tasks such as automatically identifying **intros**, **outros** and other custom-defined video segments.
 
 ---
 
 ## Features
 
 - **Frame-level video analysis** using [OpenAI CLIP](https://github.com/openai/CLIP) embeddings.
-- **Metadata-aware classification** (e.g., relative position in the video).
+- **Metadata-aware XGBoost classification** (e.g., relative position in the video).
 - **Customizable target classes** (default: bumpers & commercials).
 - **Configurable confidence threshold** for filtering predictions.
 - **Segment grouping** to merge consecutive detections.

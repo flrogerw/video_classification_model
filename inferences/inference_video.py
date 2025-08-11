@@ -28,8 +28,8 @@ load_dotenv()
 
 # Environment settings (loaded once)
 CLIP_MODEL_NAME = os.getenv("CLIP_MODEL")
-FPS_INTERVAL = float(os.getenv("FPS", 1))
-CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", 0.5))
+FPS_INTERVAL = float(os.getenv("FPS", 0.3))
+CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", 0.9))
 
 
 def load_trained_model(device: str, path: Optional[str] = None) -> torch.nn.Module:

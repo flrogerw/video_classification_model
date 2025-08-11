@@ -69,3 +69,4 @@ youtube-dl==2021.12.17
 zipp==3.21.0
 
 clip~=1.0
+xgboost~=3.0.4
