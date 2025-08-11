@@ -156,7 +156,7 @@ class VideoFrameClipDataset(Dataset):
 
             # Extract annotation time ranges
             time_ranges = []
-            for key in ("bumpers", "content"):
+            for key in ("bumpers", "content", "commercial"):
                 segments = annotation.get(key)
                 if not segments:
                     continue
@@ -287,7 +287,7 @@ class VideoFrameClipDataset(Dataset):
 
         Args:
             dataset: Dataset returning (x, label) pairs.
-            tolerance: Allowed deviation ratio from smallest class size.
+            tolerance: Allowed deviation ratio from the smallest class size.
 
         Returns:
             Subset with balanced label distribution.
@@ -333,17 +333,28 @@ class VideoFrameClipDataset(Dataset):
     @staticmethod
     def get_label(timestamp: float, annotation: dict[str, Any]) -> int:
         """
-        Get label for a timestamp based on annotation.
+        Get label for a timestamp based on annotation intervals.
 
         Args:
             timestamp: Time in seconds.
-            annotation: Annotation dictionary.
+            annotation: Dictionary with keys "bumpers", "commercials", "content" each
+                        potentially a list of [start, end] intervals or empty/missing.
 
         Returns:
-            1 for 'bumpers', 0 for 'content'.
+            int: 2 for content, 0 for bumpers, 1 for commercials.
         """
-        bumpers = annotation.get("bumpers", [])
-        return 1 if bumpers and any(start <= timestamp <= end for start, end in bumpers) else 0
+        bumpers = annotation.get("bumpers") or []
+        commercials = annotation.get("commercials") or []
+        content = annotation.get("content") or []
+
+        # Check bumpers intervals
+        if any(start <= timestamp <= end for start, end in bumpers):
+            return 1
+        # Check commercials intervals
+        if any(start <= timestamp <= end for start, end in commercials):
+            return 2
+        # Default to content (2) if no other intervals matched
+        return 0
 
     def is_black_frame(self, frame: np.ndarray) -> bool:
         """

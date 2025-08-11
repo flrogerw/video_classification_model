@@ -31,40 +31,45 @@ RETRAIN = os.getenv("RETRAIN", "False") == "True"
 # Select device: CUDA if available, otherwise MPS (Apple Silicon) or CPU
 device = "cuda" if torch.cuda.is_available() else "mps"
 
+steps_to_run = [2, 3]
+
 try:
     # Step 1: Generate video annotations
-    generator = VideoAnnotationGenerator()
-    generator.get_model_annotations(5)
+    if 1 in steps_to_run:
+        generator = VideoAnnotationGenerator()
+        generator.get_model_annotations(5)
 
     # Step 2: Train CLIP-based classifier
-    clip_trainer = ClipClassifierTrainer()
+    if 2 in steps_to_run:
+        clip_trainer = ClipClassifierTrainer()
 
-    # Load CLIP model and preprocessing pipeline
-    clip_model, preprocess = clip.load(os.getenv("CLIP_MODEL"), device=device)
+        # Load CLIP model and preprocessing pipeline
+        clip_model, preprocess = clip.load(os.getenv("CLIP_MODEL"), device=device)
 
-    # If retraining, load saved model; otherwise, create a new classifier instance
-    model = (
-        torch.load(os.getenv("MODEL"), weights_only=False)
-        if RETRAIN
-        else ClipFrameClassifier(input_dim=512, num_classes=2).to(device)
-    )
+        # If retraining, load saved model; otherwise, create a new classifier instance
+        model = (
+            torch.load(os.getenv("MODEL"), weights_only=False)
+            if RETRAIN
+            else ClipFrameClassifier(input_dim=512, num_classes=2).to(device)
+        )
 
-    # Train the model
-    clip_trainer.train(device, model)
+        # Train the model
+        clip_trainer.train(device, model)
 
-    # Save the trained model (prefix "retrained_" if retraining)
-    save_model = (
-        f'retrained_{os.getenv("MODEL")}' if RETRAIN else os.getenv("MODEL")
-    )
-    torch.save(model, save_model)
+        # Save the trained model (prefix "retrained_" if retraining)
+        save_model = (
+            f'retrained_{os.getenv("MODEL")}' if RETRAIN else os.getenv("MODEL")
+        )
+        torch.save(model, save_model)
 
     # Step 3: Train XGBoost meta-classifier
-    meta_trainer = SegmentMetaTrainer()
-    features, labels = meta_trainer.load_annotations(os.getenv("ANNOTATIONS_DIR"))
-    meta_trainer.train(features, labels)
+    if 3 in steps_to_run:
+        meta_trainer = SegmentMetaTrainer()
+        features, labels = meta_trainer.load_annotations(os.getenv("ANNOTATIONS_DIR"))
+        meta_trainer.train(features, labels)
 
-    # Save the trained meta-classifier
-    meta_trainer.save_model(os.getenv("BOOST_MODEL"))
+        # Save the trained meta-classifier
+        meta_trainer.save_model(os.getenv("BOOST_MODEL"))
 
 except FileNotFoundError as fnf_err:
     print(f"File not found: {fnf_err}")

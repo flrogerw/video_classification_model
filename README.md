@@ -118,9 +118,9 @@ FPS = 0.3                               # Seconds between analyzed frames
 TARGET_CLASSES = [1]                    # Classes to detect
 CONFIDENCE_THRESHOLD = 0.9              # Min probability to count as a detection
 ```
-#### Default class meanings:  
-0 → Normal content  
-1 → Bumper  
+#### Default class meanings: 
+0 → Normal content
+1 → Bumper
 2 → Commercial
 
 #### Usage

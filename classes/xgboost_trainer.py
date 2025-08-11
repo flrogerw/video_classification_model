@@ -7,7 +7,6 @@ import xgboost as xgb
 from sklearn.model_selection import train_test_split
 
 
-
 class SegmentMetaTrainer:
     def __init__(self):
         self.model = None
@@ -30,6 +29,7 @@ class SegmentMetaTrainer:
                     labels.append(class_id)
 
         return np.array(features), np.array(labels)
+
     @staticmethod
     def get_features(start_time: float, end_time: float, video_duration: float) -> list:
         rel_start, rel_end = SegmentMetaTrainer.normalize_times(start_time, end_time, video_duration)
@@ -58,7 +58,7 @@ class SegmentMetaTrainer:
             return 0.0
 
     @staticmethod
-    def normalize_times(start: float, end: float, duration: float)-> tuple[float, float]:
+    def normalize_times(start: float, end: float, duration: float) -> tuple[float, float]:
         if duration <= 0:
             raise ValueError("Duration must be greater than 0")
 
@@ -73,7 +73,7 @@ class SegmentMetaTrainer:
         dval = xgb.DMatrix(X_val, label=y_val)
 
         params = {
-            'objective': 'multi:softmax',
+            'objective': 'multi:softprob',
             'num_class': 2,
             'eval_metric': 'mlogloss',
             'max_depth': 4,
