@@ -108,19 +108,19 @@ to capture credits, which often resemble bumpers in training.
 #### Running the Classifier With or Without Metadata
 
 You can run the frame-based classifier alone or combine it with metadata filtering.  
-- **Without metadata** – Use `trainer.py` to run classification without keeping location metadata.  
-- **With metadata** – Use `trainer_meta.py` to run classification with keeping location metadata.
+- **Without metadata** – Use `trainer_pipeline.py` to run classification without keeping location metadata.  
+- **With metadata** – Use `trainer_pipeline_meta.py` to run classification with keeping location metadata.
 
 ```bash
-python clip_trainer.py           # Without metadata.
-python clip_trainer_meta.py      # with metadata.
+python trainer_pipeline.py           # Without metadata.
+python trainer_pipeline_meta.py      # with metadata.
 ```
 
 
 ## Video Inference
 
 ### Configuration
-You can change detection settings by editing the constants at the top of the script:
+You can change detection settings by editing the constants in the .env file:
 
 ```python
 MODEL = "meta_clip_classifier.pt"       # Path to trained model
@@ -138,8 +138,8 @@ CONFIDENCE_THRESHOLD = 0.9              # Min probability to count as a detectio
 Run the script with:
 
 ```bash
-python inference_video_meta.py        # with Metadata
-python inference_video.py             # without Metadata
+python inference_pipeline_meta.py        # with Metadata
+python inference_pipeline.py             # without Metadata
 ```
 Edit the videos list in the __main__ block to point to your own video files:
 
