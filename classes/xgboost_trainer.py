@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import glob
 
@@ -11,6 +13,45 @@ class SegmentMetaTrainer:
     def __init__(self):
         self.model = None
 
+    @staticmethod
+    def calculate_content_segments(annotation: dict, video_duration: float) -> list[list[float]]:
+        """
+        Calculate content segments by finding gaps between bumpers and commercials.
+        Ignores the 'content' property in the annotation.
+
+        Args:
+            annotation: Annotation dictionary containing 'bumpers' and 'commercials'.
+            video_duration: Duration of the video in seconds.
+
+        Returns:
+            A list of [start, end] time ranges for content segments.
+        """
+        bumpers = annotation.get("bumpers") or []
+        commercials = annotation.get("commercials") or []
+
+        # Ensure all entries are lists of floats
+        blocked_segments = []
+        for seg in bumpers + commercials:
+            if seg and isinstance(seg, list) and len(seg) == 2:
+                blocked_segments.append([float(seg[0]), float(seg[1])])
+
+        # Sort by start time
+        blocked_segments.sort(key=lambda x: x[0])
+
+        content_segments = []
+        last_end = 0.0
+
+        for start, end in blocked_segments:
+            if start > last_end:
+                content_segments.append([last_end, start])
+            last_end = max(last_end, end)
+
+        # Add final segment if there's content after the last blocked segment
+        if last_end < video_duration:
+            content_segments.append([last_end, video_duration])
+
+        return content_segments
+
     def load_annotations(self, annotation_dir: str):
         features = []
         labels = []
@@ -19,12 +60,18 @@ class SegmentMetaTrainer:
             with open(file, "r") as f:
                 data = json.load(f)
 
-            video_duration = self.get_video_duration(data.get("file_path"))
-            for label_name in ["bumpers", "commercials"]:
+            for label_name in ["bumpers", "commercials", "content"]:
                 class_id = self.class_to_id(label_name)
-                for seg in (data.get(label_name) or []):
+
+                if label_name == "content":
+                    segments = self.calculate_content_segments(data, data.get('video_duration'))
+                elif label_name == "commercials":
+                    segments = [[0.0, 0.0]]
+                else:
+                    segments = data.get(label_name) or []
+                for seg in segments:
                     start_time, end_time = seg
-                    seg_features = self.get_features(start_time, end_time, video_duration)
+                    seg_features = self.get_features(start_time, end_time, data.get('video_duration'))
                     features.append(seg_features)
                     labels.append(class_id)
 
@@ -39,23 +86,8 @@ class SegmentMetaTrainer:
 
     @staticmethod
     def class_to_id(label):
-        mapping = {"bumpers": 1, "commercials": 2, "content": 0}
+        mapping = {"content": 0, "bumpers": 1, "commercials": 2}
         return mapping[label]
-
-    @staticmethod
-    def get_video_duration(video_file: str) -> float:
-        # Get video properties
-        try:
-            cap = cv2.VideoCapture(video_file)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            if fps <= 0:
-                raise ValueError("Invalid FPS value")
-            duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
-            cap.release()
-            return duration
-        except Exception as e:
-            print(f"Error probing video {video_file}: {e}")
-            return 0.0
 
     @staticmethod
     def normalize_times(start: float, end: float, duration: float) -> tuple[float, float]:
@@ -74,11 +106,16 @@ class SegmentMetaTrainer:
 
         params = {
             'objective': 'multi:softprob',
-            'num_class': 2,
+            'num_class': 3,
             'eval_metric': 'mlogloss',
             'max_depth': 4,
             'eta': 0.1,
-            'seed': 42
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'min_child_weight': 3,
+            'gamma': 0.1,
+            'seed': 42,
+            'tree_method': 'hist'
         }
 
         evals = [(dtrain, 'train'), (dval, 'validation')]

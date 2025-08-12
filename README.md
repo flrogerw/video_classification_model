@@ -46,7 +46,7 @@ Project Structure
 │   └── annotations                     # Location of annotation files
 ├── models                              # Location of models
 │   ├── clip_classifier.pt              # Standard classification trained model
-│   └── clip_classifier_meta.pt         # Metadata aware classification trained model
+│   └── segment_meta_model_lg.json         # XGBoost trained model
 ├── README.md 
 ├── pipeline_training.py                # Runs the trainng pipeline scripts
 ├── pipeline_inference.py               # Runs the inference pipeline scripts
@@ -58,19 +58,57 @@ Project Structure
 You can change detection settings by editing the constants in the .env file:
 
 ```python
-CONFUSION_MATRIX = False                # Whether to show the confusion matrix
-EPOCH_COUNT = 20                        # Number of times to loop the datasets
-FRAME_BUFFER = 0                        # Number of seconds on either side of an annotation timestamp
-FPS = 0.3                               # How often to grab a frame for the datasets
-DATA_BATCH_SIZE = 32                    # How many samples per batch to load 
-LABEL_COUNT = 2                         # 0 = normal content, 1 = bumpers
-MODEL = "models/clip_classifier.pt"     # What name to save the model as.
-CLIP_MODEL = "ViT-B/32"                 # Which CLIP model to use ViT-B/32 or ViT-L/14
-TARGET_CLASSES = [1]                    # Which classes to use in the Confusion Matrix
-RETRAIN = False                         # Is this a first run or a retraining run.
-BALANCE_TOLERANCE = 2.0                 # The class tolerance for the balanced datasets.
-BLACK_THRESHOLD = 1.0                   # mean brightness below this = black
-MOTION_THRESHOLD = 20.0                 # mean frame difference below this = low motion
+## DATABASE
+DB_NAME=XXXXXX
+DB_USER=XXXXXX
+DB_PASSWORD=XXXXXX
+DB_HOST=XXXXXX
+DB_PORT=XXXXXX
+
+## SHARED ##
+# Location of where to save/access the trained model.
+MODEL=models/clip_classifier.pt
+# XGBoost model location
+BOOST_MODEL=models/segment_meta_model.json
+# How often to grab a frame for the datasets
+FPS=0.3
+# "ViT-B/32" or ViT-L/14
+CLIP_MODEL=ViT-B/32
+# Location of annotation files
+ANNOTATIONS_DIR=./datasets/annotations
+# Classes to process
+TARGET_CLASSES=[0,1,2]
+# mean brightness below this = black
+BLACK_THRESHOLD=1.0
+
+## CREATE DATASET ##
+ROOT_DIR=/Volumes/TTBS/time_traveler
+# Number of samples from each group (number of episodes from a show)
+SAMPLE_COUNT=2
+# How much content to grab
+CONTENT_BUFFER=180
+
+## TRAINER ##
+# Whether to show the confusion matrix
+CONFUSION_MATRIX=False
+# Number of times to loop the datasets
+EPOCH_COUNT=10
+# Number of samples sent to model
+DATA_BATCH_SIZE=32
+# Number of labels we are interested in
+LABEL_COUNT=2
+# Is this a retrining run
+RETRAIN=False
+# The class tolerance for the balanced datasets.
+BALANCE_TOLERANCE=8.0
+# mean frame difference below this = low motion
+MOTION_THRESHOLD=2.0
+
+## INFERENCE ##
+# Minimum confidence before using in calculations
+CONFIDENCE_THRESHOLD=0.9
+#  Model to use for video inference pipeline
+INFERENCE_MODEL=models/clip_classifier.pt
 ```
 
 ### Annotations Format
@@ -112,7 +150,7 @@ python trainer_pipeline.py
 You can change detection settings by editing the constants in the .env file:
 
 ```python
-MODEL = "meta_clip_classifier.pt"       # Path to trained model
+MODEL = "clip_classifier.pt"            # Path to trained model
 CLIP_MODEL = "ViT-B/32"                 # CLIP variant
 FPS = 0.3                               # Seconds between analyzed frames
 TARGET_CLASSES = [1]                    # Classes to detect

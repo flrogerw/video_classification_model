@@ -31,6 +31,7 @@ class ClipClassifierTrainer:
         self.motion_threshold: float = float(os.getenv("MOTION_THRESHOLD", 2.0))
         self.clip_model_name: Optional[str] = os.getenv("CLIP_MODEL")
         self.fps_interval: float = float(os.getenv("FPS", 0.3))
+        self.content_fps: float = float(os.getenv("CONTENT_FPS", 1.0))
         self.balance_tolerance: float = float(os.getenv("BALANCE_TOLERANCE", 1.0))
         self.batch_size: int = int(os.getenv("DATA_BATCH_SIZE", 32))
         self.epochs: int = int(os.getenv("EPOCH_COUNT", 10))
@@ -43,6 +44,7 @@ class ClipClassifierTrainer:
             motion_threshold=self.motion_threshold,
             clip_model=self.clip_model_name,
             interval_sec=self.fps_interval,
+            content_fps=self.content_fps
         )
 
         return VideoFrameClipDataset.get_balanced_subset(
@@ -144,7 +146,7 @@ class ClipClassifierTrainer:
         val_confidences.append(avg_conf)
         val_loss /= val_total if val_total > 0 else 1
 
-        print(f"           Val Loss: {val_loss:.4f} - Val Acc: {val_acc:.2f}")
+        print(f"           Val Loss: {val_loss:.4f} - Val Acc: {val_acc:.2f} - Confidence: {avg_conf}")
 
         if self.confusion_matrix_enabled and all_preds and all_labels:
             plotter = ConfusionMatrix(target_classes=['Content', 'Bumpers'])

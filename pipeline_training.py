@@ -31,7 +31,11 @@ RETRAIN = os.getenv("RETRAIN", "False") == "True"
 # Select device: CUDA if available, otherwise MPS (Apple Silicon) or CPU
 device = "cuda" if torch.cuda.is_available() else "mps"
 
-steps_to_run = [2, 3]
+# Define what steps in the pipeline to preform.
+# Step 1: Generate video annotations
+# Step 2: Train CLIP-based classifier
+# Step 3: Train XGBoost meta-classifier
+steps_to_run = [2]
 
 try:
     # Step 1: Generate video annotations

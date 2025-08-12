@@ -92,7 +92,8 @@ class VideoFrameClipDataset(Dataset):
             clip_model: str,
             black_threshold: float = 1.0,
             motion_threshold: float = 2.0,
-            interval_sec: float = 1.0
+            interval_sec: float = 1.0,
+            content_fps: float = 1.0
     ) -> None:
         """
         Initialize the dataset.
@@ -112,6 +113,7 @@ class VideoFrameClipDataset(Dataset):
         self.clip_model = clip_model
         self.black_threshold = black_threshold
         self.motion_threshold = motion_threshold
+        self.content_fps = content_fps
 
         # Load CLIP model
         try:
@@ -142,17 +144,7 @@ class VideoFrameClipDataset(Dataset):
                 print(f"Skipping missing video: {video_file}")
                 continue
 
-            # Get video properties
-            try:
-                cap = cv2.VideoCapture(video_file)
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                if fps <= 0:
-                    raise ValueError("Invalid FPS value")
-                duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
-                cap.release()
-            except Exception as e:
-                print(f"Error probing video {video_file}: {e}")
-                continue
+            duration = annotation.get("video_duration")
 
             # Extract annotation time ranges
             time_ranges = []
@@ -164,7 +156,7 @@ class VideoFrameClipDataset(Dataset):
                     segments = [segments]
                 for start, end in segments:
                     start = max(0, (start or 0))
-                    end = (end or 0)
+                    end = (end or duration)
                     time_ranges.append((start, end))
 
             if not time_ranges:
@@ -180,7 +172,7 @@ class VideoFrameClipDataset(Dataset):
                         self.samples.append((video_file, t, label))
                     except Exception as e:
                         print(f"Error assigning label at {t}s in {video_file}: {e}")
-                t += self.interval_sec
+                t += 1 if label == 0 else self.interval_sec
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""

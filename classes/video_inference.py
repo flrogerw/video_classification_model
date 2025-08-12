@@ -12,7 +12,7 @@ specific segments in videos. It can:
 
 Environment variables are read from `.env` using `python-dotenv`.
 """
-
+import ast
 import os
 import torch
 import clip
@@ -35,9 +35,12 @@ class VideoSegmentPredictor:
         """
         Initialize environment settings and placeholders for models.
         """
-        self.clip_model_name: str = os.getenv("CLIP_MODEL", "")
+        self.clip_model_name: str = os.getenv("INFERENCE_MODEL", "")
         self.fps_interval: float = float(os.getenv("FPS", 0.3))
         self.confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", 0.9))
+        self.black_threshold: float = float(os.getenv("BLACK_THRESHOLD", 1))
+        self.read_length: int = int(os.getenv("READ_LENGTH", 60))
+        self.class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
 
         self.clip_model: Optional[torch.nn.Module] = None
         self.preprocess: Optional[Callable] = None
@@ -75,26 +78,11 @@ class VideoSegmentPredictor:
         except Exception as e:
             raise RuntimeError(f"Failed to load trained model from {path}: {e}")
 
-    @staticmethod
-    def is_black_frame(frame, threshold: float = 1) -> bool:
-        """
-        Detect black or near-black frames by average pixel intensity.
-
-        Args:
-            frame: A single video frame (NumPy array).
-            threshold: Mean pixel value below which the frame is considered black.
-
-        Returns:
-            True if frame is black, otherwise False.
-        """
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        return gray.mean() < threshold
-
     def predict_video_segments(
-        self,
-        video_path: str,
-        device: str,
-        target_classes: Optional[List[int]] = None,
+            self,
+            video_path: str,
+            device: str,
+            target_classes: list[int] | None = None,
     ) -> List[Tuple[float, int]]:
         """
         Predict segments in a video where specific classes appear.
@@ -102,7 +90,6 @@ class VideoSegmentPredictor:
         Args:
             video_path: Path to the video file.
             device: Device string ("cuda", "mps", "cpu").
-            target_classes: List of class IDs to track.
 
         Returns:
             List of (timestamp_seconds, predicted_class_id) tuples.
@@ -119,15 +106,22 @@ class VideoSegmentPredictor:
                 raise RuntimeError(f"Unable to open video file: {video_path}")
 
             fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = total_frames / fps
+
+            start_window_end = self.read_length
+            end_window_start = duration - self.read_length
+
             timestamped_classes: List[Tuple[float, int]] = []
             frame_idx = 0
 
             success, frame = cap.read()
             while success:
-                # Process frame at defined interval
-                if frame_idx % int(fps * self.fps_interval) == 0:
-                    # Skip black frames
-                    if self.is_black_frame(frame, threshold=1):
+                timestamp_sec = frame_idx / fps
+
+                # Only process frames in the first N or last N seconds
+                if timestamp_sec <= start_window_end or timestamp_sec >= end_window_start:
+                    if self.is_black_frame(frame, threshold=self.black_threshold):
                         success, frame = cap.read()
                         frame_idx += 1
                         continue
@@ -144,14 +138,14 @@ class VideoSegmentPredictor:
                     max_prob, predicted_class = torch.max(probs, dim=1)
 
                     print(
-                        f"{max_prob.item():.4f} :: Class {predicted_class.item()} :: Time {frame_idx / fps:.2f}s"
+                        f"{max_prob.item():.4f} :: {self.class_mapping.get(predicted_class.item())} :: Time {self.seconds_to_min_sec(frame_idx / fps)}"
                     )
 
                     # Store timestamp if it meets target and confidence threshold
                     if (
-                        target_classes
-                        and predicted_class.item() in target_classes
-                        and max_prob.item() > self.confidence_threshold
+                            target_classes
+                            and predicted_class.item() in target_classes
+                            and max_prob.item() > self.confidence_threshold
                     ):
                         timestamped_classes.append((frame_idx / fps, predicted_class.item()))
 
@@ -166,8 +160,8 @@ class VideoSegmentPredictor:
 
     @staticmethod
     def group_segments(
-        timestamped_classes: List[Tuple[float, int]],
-        max_gap: float = 5.0,
+            timestamped_classes: List[Tuple[float, int]],
+            max_gap: float = 5.0,
     ) -> Dict[int, List[Tuple[float, float]]]:
         """
         Group timestamps by class into continuous segments, ignoring
@@ -224,17 +218,18 @@ class VideoSegmentPredictor:
         secs = total_seconds % 60
         return f"{minutes}:{secs:02d}"
 
+
     @staticmethod
-    def get_video_duration(video_file: str) -> float:
-        # Get video properties
-        try:
-            cap = cv2.VideoCapture(video_file)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            if fps <= 0:
-                raise ValueError("Invalid FPS value")
-            duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
-            cap.release()
-            return duration
-        except Exception as e:
-            print(f"Error probing video {video_file}: {e}")
-            return 0.0
+    def is_black_frame(frame, threshold: float = 1) -> bool:
+        """
+        Detect black or near-black frames by average pixel intensity.
+
+        Args:
+            frame: A single video frame (NumPy array).
+            threshold: Mean pixel value below which the frame is considered black.
+
+        Returns:
+            True if frame is black, otherwise False.
+        """
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return gray.mean() < threshold

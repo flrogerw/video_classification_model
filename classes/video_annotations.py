@@ -7,8 +7,11 @@ analyzes video files to calculate durations, and generates annotation files
 
 Configuration is managed via environment variables in a `.env` file.
 """
-
+import contextlib
+import io
 import os
+import shutil
+
 import cv2
 import psycopg2
 import json
@@ -20,6 +23,7 @@ from typing import Optional, List, Dict, Any
 
 # Load environment variables once at the top
 load_dotenv()
+
 
 class VideoAnnotationGenerator:
     """
@@ -68,19 +72,43 @@ class VideoAnnotationGenerator:
             print(f"Error saving annotation file: {e}")
 
     @staticmethod
-    def _get_video_length(filename: str) -> Optional[float]:
+    def get_video_length(filename: str) -> Optional[float]:
         """Return video duration in seconds, or None if not available."""
         try:
-            cap = cv2.VideoCapture(filename)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            stderr_capture = io.StringIO()
+            with contextlib.redirect_stderr(stderr_capture):
+                cap = cv2.VideoCapture(filename)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+
+                # Get any warnings from OpenCV
+                warning_msg = stderr_capture.getvalue()
+                if warning_msg:
+                    print(f"OpenCV Warning: {warning_msg.strip()}")
+                    # Handle warning here, e.g., retry with fallback settings
+
+            if fps <= 0:
+                raise ValueError("Invalid FPS value")
+            duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
             cap.release()
-            if fps > 0:
-                return round(frame_count / fps, 2)
-            return None
+            return round(duration, 2)
         except Exception as e:
-            print(f"Error reading video length for {filename}: {e}")
+            print(f"Error probing video {filename}: {e}")
             return None
+
+    def _empty_annotations_directory(self):
+        if not os.path.exists(self.annotations_dir):
+            print(f"Directory does not exist: {self.annotations_dir}")
+            return
+
+        for filename in os.listdir(self.annotations_dir):
+            file_path = os.path.join(self.annotations_dir, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)  # Remove file or symlink
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)  # Remove directory and its contents
+            except Exception as e:
+                print(f"Failed to delete {file_path}: {e}")
 
     def _get_db_filenames(self, show_id: int) -> List[Dict[str, Any]]:
         """Fetch episode records from the database for a given show ID."""
@@ -107,13 +135,14 @@ class VideoAnnotationGenerator:
 
     def get_model_annotations(self, show_id: int | None = None) -> None:
         """Generate annotations for episodes from a given show ID."""
+        self._empty_annotations_directory()
         db_filenames = self._get_db_filenames(show_id)
         for record in db_filenames:
             try:
                 year = int(record['episode_airdate'].strftime("%y"))
                 decade = f"{(year // 10) % 10}0s"
                 file_path = f'{self.root_dir}/{decade}/{year}/{record["episode_file"]}'
-                end_point = self._get_video_length(file_path)
+                end_point = self.get_video_length(file_path)
 
                 if end_point is None:
                     print(f"Skipping file {file_path} (no duration found).")
@@ -145,12 +174,13 @@ class VideoAnnotationGenerator:
                     "file_path": file_path,
                     "bumpers": bumpers if bumpers else None,
                     "commercials": None,
-                    "content": content
+                    "content": content,
+                    "video_duration": end_point
                 }
-                self._set_annotation_file(annotation)
+                if annotation['bumpers'] or annotation['commercials']:
+                    self._set_annotation_file(annotation)
 
             except Exception as e:
                 print(f"Error processing record {record}: {e}")
 
         print(f"Total Records Processed: {len(db_filenames)}")
-

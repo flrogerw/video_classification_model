@@ -19,11 +19,15 @@ Modules:
 import ast
 import os
 import torch
+
+from classes.video_annotations import VideoAnnotationGenerator
 from classes.video_inference import VideoSegmentPredictor
 from classes.xgboost_trainer import SegmentMetaTrainer
 
 # Select computation device (CUDA if available, else CPU)
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
 
 try:
     # Load target classes from environment variable
@@ -39,23 +43,23 @@ try:
 
     # Step 2: Initialize and load the meta-classifier
     meta_predictor = SegmentMetaTrainer()
-    meta_predictor.load_model(os.getenv("BOOST_MODEL"))
+    meta_predictor.load_model(os.getenv("INFERENCE_BOOST"))
 
     # Step 3: List of videos for inference
     inference_videos = [
-        "/Volumes/TTBS/time_traveler/60s/65/Dick_Van_Dyke_The_Redcoats_Are_Coming.mp4"
+        "/Volumes/TTBS/time_traveler/80s/84/Hunter_Legacy.mp4"
     ]
 
     for video_path in inference_videos:
         try:
             # Get video duration
-            video_duration = clip_predictor.get_video_duration(video_file=video_path)
+            video_duration = VideoAnnotationGenerator.get_video_length(filename=video_path)
 
             # Predict segments for target classes
             segments = clip_predictor.predict_video_segments(
                 video_path,
                 device=device,
-                target_classes=[1, 2]  # Example: predicting only classes 1 and 2
+                target_classes=[1,2]
             )
 
             # Group predicted frames into continuous time intervals
@@ -63,7 +67,7 @@ try:
 
             # Process each class's grouped segments
             for cls, segs in grouped_segments.items():
-                print(f"Class {cls}:")
+                print(f"{class_mapping.get(cls)}:")
                 for start, end in segs:
                     start_str = clip_predictor.seconds_to_min_sec(start)
                     end_str = clip_predictor.seconds_to_min_sec(end)
