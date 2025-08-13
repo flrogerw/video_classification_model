@@ -1,6 +1,7 @@
 # Video Segment Classifier (CLIP + XGBoost)
 
-This project uses a **CLIP-based model** combined with **XGBoost** to detect and classify segments in video files.  It is designed for tasks such as automatically identifying **intros**, **outros** and other custom-defined video segments.
+This project uses a **CLIP-based model** combined with **XGBoost** and a custom **closeness model** to detect and classify segments in video files. It is designed for tasks such as automatically identifying intros, outros, and other custom-defined video segments.
+
 
 ---
 
@@ -36,6 +37,7 @@ pip install -r requirements.txt
 Project Structure
 ```bash
 ├── classes                             # Location of class files
+│   ├── closeness_trainer.py            # Closeness classifier.
 │   ├── video_annotations.py            # Generates annotation files.
 │   ├── video_classifier.py             # Metadata aware classifier head
 │   ├── video_inference.py              # Standard classification inference classifier
@@ -46,7 +48,8 @@ Project Structure
 │   └── annotations                     # Location of annotation files
 ├── models                              # Location of models
 │   ├── clip_classifier.pt              # Standard classification trained model
-│   └── segment_meta_model_lg.json         # XGBoost trained model
+│   ├── closeness_model.json            # Closeness classification trained model
+│   └── segment_meta_model_lg.json      # XGBoost trained model
 ├── README.md 
 ├── pipeline_training.py                # Runs the trainng pipeline scripts
 ├── pipeline_inference.py               # Runs the inference pipeline scripts
@@ -121,7 +124,8 @@ Each annotation file is a JSON object describing the locations of bumpers, comme
     "file_path": "/file_to_process.mp4",
     "bumpers": [[1538.73, 1545.93]],
     "commercials": [[395.0, 397.1], [600.0, 602.5]],
-    "content": [[0,120],[1407.27, 1527.27]]
+    "content": [[0,120],[1407.27, 1527.27]],
+    "video_duration": 1546.53
 }
 ```
 

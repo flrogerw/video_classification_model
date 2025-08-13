@@ -35,7 +35,7 @@ class VideoSegmentPredictor:
         """
         Initialize environment settings and placeholders for models.
         """
-        self.clip_model_name: str = os.getenv("INFERENCE_MODEL", "")
+        self.clip_model_name: str = os.getenv("CLIP_MODEL", "")
         self.fps_interval: float = float(os.getenv("FPS", 0.3))
         self.confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", 0.9))
         self.black_threshold: float = float(os.getenv("BLACK_THRESHOLD", 1))

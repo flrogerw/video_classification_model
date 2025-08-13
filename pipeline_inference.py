@@ -20,6 +20,7 @@ import ast
 import os
 import torch
 
+from classes.closeness_trainer import StartDurationClosenessTrainer
 from classes.video_annotations import VideoAnnotationGenerator
 from classes.video_inference import VideoSegmentPredictor
 from classes.xgboost_trainer import SegmentMetaTrainer
@@ -38,16 +39,21 @@ try:
     clip_predictor.load_clip_model(device=device)
     clip_predictor.load_trained_model(
         device=device,
-        path=os.getenv("INFERENCE_MODEL")
+        path=os.getenv("INFERENCE_CLIP")
     )
 
     # Step 2: Initialize and load the meta-classifier
     meta_predictor = SegmentMetaTrainer()
     meta_predictor.load_model(os.getenv("INFERENCE_BOOST"))
 
+    # Step 2.5: Initialize and load the closeness-classifier
+    closeness = StartDurationClosenessTrainer()
+    closeness.load_model(os.getenv("INFERENCE_CLOSENESS"))
+
+
     # Step 3: List of videos for inference
     inference_videos = [
-        "/Volumes/TTBS/time_traveler/80s/84/Hunter_Legacy.mp4"
+        "/Volumes/TTBS/time_traveler/90s/92/Baywatch_Point_Doom.mp4"
     ]
 
     for video_path in inference_videos:
@@ -83,6 +89,11 @@ try:
                     # Predict label for this segment
                     predictions = meta_predictor.predict([seg_features])
                     print(f"  Meta-classifier prediction: {predictions}")
+
+                    # Predict closeness for this segment
+                    rel_start, rel_duration = closeness.get_features(start, end, video_duration)
+                    probs = closeness.predict(start_times=[rel_start], durations=[rel_duration])
+                    print(f"  Closeness-classifier prediction: {probs}")
 
         except FileNotFoundError:
             print(f"Video file not found: {video_path}")
