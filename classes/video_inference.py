@@ -12,7 +12,6 @@ specific segments in videos. It can:
 
 Environment variables are read from `.env` using `python-dotenv`.
 """
-import ast
 import os
 import torch
 import clip
@@ -82,7 +81,7 @@ class VideoSegmentPredictor:
             self,
             video_path: str,
             device: str,
-            target_classes: list[int] | None = None,
+            target_classes=None,
     ) -> List[Tuple[float, int]]:
         """
         Predict segments in a video where specific classes appear.
@@ -90,6 +89,7 @@ class VideoSegmentPredictor:
         Args:
             video_path: Path to the video file.
             device: Device string ("cuda", "mps", "cpu").
+            target_classes: classes to process [0,1,2]
 
         Returns:
             List of (timestamp_seconds, predicted_class_id) tuples.
@@ -97,8 +97,12 @@ class VideoSegmentPredictor:
         Raises:
             RuntimeError: If video reading or prediction fails.
         """
+        if target_classes is None:
+            target_classes = []
         if self.clip_model is None or self.preprocess is None or self.classifier_model is None:
             raise RuntimeError("Models not loaded. Call load_clip_model and load_trained_model first.")
+
+        print(f"\nProcessing: {video_path}", flush=True)
 
         try:
             cap = cv2.VideoCapture(video_path)
@@ -122,6 +126,7 @@ class VideoSegmentPredictor:
                 # Only process frames in the first N or last N seconds
                 if timestamp_sec <= start_window_end or timestamp_sec >= end_window_start:
                     if self.is_black_frame(frame, threshold=self.black_threshold):
+                        timestamped_classes.append((frame_idx / fps, -1))
                         success, frame = cap.read()
                         frame_idx += 1
                         continue
@@ -136,10 +141,6 @@ class VideoSegmentPredictor:
                         probs = torch.softmax(output, dim=1)
 
                     max_prob, predicted_class = torch.max(probs, dim=1)
-
-                    print(
-                        f"{max_prob.item():.4f} :: {self.class_mapping.get(predicted_class.item())} :: Time {self.seconds_to_min_sec(frame_idx / fps)}"
-                    )
 
                     # Store timestamp if it meets target and confidence threshold
                     if (

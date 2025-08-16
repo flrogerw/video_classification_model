@@ -1,6 +1,6 @@
-# Video Segment Classifier (CLIP + XGBoost)
+# Video Segment Classifier (CLIP + XGBoost + Celery)
 
-This project uses a **CLIP-based model** combined with **XGBoost** and a custom **closeness model** to detect and classify segments in video files. It is designed for tasks such as automatically identifying intros, outros, and other custom-defined video segments.
+This project uses a **CLIP-based model** combined with **XGBoost** as both a custom **closeness model** and a metadata model to detect and classify segments in video files. It is designed for tasks such as automatically identifying intros, outros, and other custom-defined video segments. It is a distributed system using an array of Raspberry Pis for classification.
 
 
 ---

@@ -37,13 +37,13 @@ device = "cuda" if torch.cuda.is_available() else "mps"
 # Step 1: Generate video annotations
 # Step 2: Train CLIP-based classifier
 # Step 3: Train XGBoost meta and closeness classifiers
-steps_to_run = [3]
+steps_to_run = [2,3]
 
 try:
     # Step 1: Generate video annotations
     if 1 in steps_to_run:
         generator = VideoAnnotationGenerator()
-        generator.get_model_annotations(5)
+        generator.get_model_annotations()
 
     # Step 2: Train CLIP-based classifier
     if 2 in steps_to_run:
@@ -64,7 +64,7 @@ try:
 
         # Save the trained model (prefix "retrained_" if retraining)
         save_model = (
-            f'retrained_{os.getenv("MODEL")}' if RETRAIN else os.getenv("MODEL")
+            os.getenv("RETRAIN_MODEL") if RETRAIN else os.getenv("MODEL")
         )
         torch.save(model, save_model)
 
@@ -75,8 +75,8 @@ try:
         closeness = StartDurationClosenessTrainer()
 
         # Create feature sets
-        features, labels = meta_trainer.load_annotations(os.getenv("ANNOTATIONS_DIR"))
-        start_times, durations = closeness.load_annotations(os.getenv("ANNOTATIONS_DIR"))
+        features, labels = meta_trainer.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
+        start_times, durations = closeness.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
 
         # Train the classifiers
         meta_trainer.train(features, labels)

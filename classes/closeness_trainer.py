@@ -114,6 +114,8 @@ class StartDurationClosenessTrainer:
 
             for label_name in ["bumpers", "commercials"]:
                 for seg in data.get(label_name) or []:
+                    print(data)
+
                     start_time, end_time = seg
                     rel_start, rel_duration = self.get_features(start_time, end_time, data.get('video_duration'))
                     start_times.append(rel_start)

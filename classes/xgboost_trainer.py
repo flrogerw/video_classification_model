@@ -61,8 +61,6 @@ class SegmentMetaTrainer:
 
                 if label_name == "content":
                     segments = self.calculate_content_segments(data, data.get('video_duration'))
-                elif label_name == "commercials":
-                    segments = [[0.0, 0.0]]
                 else:
                     segments = data.get(label_name) or []
                 for seg in segments:
@@ -94,34 +92,12 @@ class SegmentMetaTrainer:
         end_norm = max(0, min(1, end / duration))
         return start_norm, end_norm
 
-    def train(self, features, labels, column_weights=None):
-        """
-        Train the XGBoost model with optional column weighting.
+    def train(self, features, labels):
+        X_train, X_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
 
-        Args:
-            features (pd.DataFrame): Feature matrix with column names.
-            labels (array-like): Target values.
-            column_weights (dict): Optional mapping of column names to scale factors.
-                                   Example: {'start_time': 5.0}
-        """
-        X = features.copy()
-
-        # Apply column weighting if provided
-        if column_weights:
-            for col, factor in column_weights.items():
-                if col in X.columns:
-                    X[col] = X[col] * factor
-                else:
-                    raise ValueError(f"Column '{col}' not found in features")
-
-        # Train-validation split
-        X_train, X_val, y_train, y_val = train_test_split(X, labels, test_size=0.2, random_state=42)
-
-        # Create DMatrix objects
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dval = xgb.DMatrix(X_val, label=y_val)
 
-        # XGBoost parameters
         params = {
             'objective': 'multi:softprob',
             'num_class': 3,
@@ -137,8 +113,6 @@ class SegmentMetaTrainer:
         }
 
         evals = [(dtrain, 'train'), (dval, 'validation')]
-
-        # Train the model
         self.model = xgb.train(
             params,
             dtrain,

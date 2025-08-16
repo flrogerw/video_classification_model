@@ -2,3 +2,5 @@
 /datasets/*
 /sandbox/
 /models/*
+/find_frame_in_file.py
+/show_contact_sheet.py

@@ -95,6 +95,21 @@ class VideoAnnotationGenerator:
             print(f"Error probing video {filename}: {e}")
             return None
 
+    def update_episode_start_end(self, start: float, end: float, filename: str) -> None:
+        query = f"""UPDATE episodes SET start_point = %s, end_point = %s, processed = true WHERE episode_file = %s"""
+        try:
+            conn = psycopg2.connect(**self.db_config)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(query, (start, end, filename))
+            conn.commit()
+            cur.close()
+            conn.close()
+            print(f"Updated {os.path.basename(filename)}: Start: {start} End: {end}")
+
+        except Exception as e:
+            print(f"Database query failed: {e}")
+            return None
+
     def _empty_annotations_directory(self):
         if not os.path.exists(self.annotations_dir):
             print(f"Directory does not exist: {self.annotations_dir}")
@@ -110,17 +125,20 @@ class VideoAnnotationGenerator:
             except Exception as e:
                 print(f"Failed to delete {file_path}: {e}")
 
-    def _get_db_filenames(self, show_id: int) -> List[Dict[str, Any]]:
-        """Fetch episode records from the database for a given show ID."""
-        query = f"""
-            WITH ranked AS (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY episode_airdate) AS rn
-                FROM episodes
-                WHERE (end_point != FLOOR(end_point) OR start_point != FLOOR(start_point))
-                AND episode_airdate < '1990-01-01'
-            )
-            SELECT * FROM ranked WHERE rn <= {self.sample_count};
-        """
+    def get_show_episode_filename(self, show_id: int) -> List[Dict[str, Any]]:
+        """Fetch episode records from the database for a given show ID. Used by inference"""
+        query2 = f"""SELECT * FROM episodes WHERE show_id = %s;"""
+        query = f"""WITH ranked AS (
+                          SELECT
+                              e.*,
+                              ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn
+                          FROM episodes e
+                          -- WHERE show_id = 97
+                      )
+                      SELECT *
+                     FROM ranked
+                     WHERE rn <= 4 ORDER BY show_id;"""
+
         try:
             conn = psycopg2.connect(**self.db_config)
             cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -133,10 +151,97 @@ class VideoAnnotationGenerator:
             print(f"Database query failed: {e}")
             return []
 
-    def get_model_annotations(self, show_id: int | None = None) -> None:
+    def _get_db_filenames(self) -> List[Dict[str, Any]]:
+        """Fetch episode records from the database."""
+        query = f"""
+            WITH ranked AS (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY episode_airdate) AS rn
+                FROM episodes
+                WHERE (end_point != FLOOR(end_point) OR start_point != FLOOR(start_point))
+                -- AND episode_airdate < '1990-01-01'
+                --AND show_id in (6)
+            )
+            SELECT * FROM ranked WHERE rn <= {self.sample_count};
+        """
+
+        try:
+            conn = psycopg2.connect(**self.db_config)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(query, ())
+            result = cur.fetchall()
+            cur.close()
+            conn.close()
+            return result
+        except Exception as e:
+            print(f"Database query failed: {e}")
+            return []
+
+    def get_inference_filenames(self, show_id: int) -> list[str]:
+        filenames: list = []
+        db_filenames: list = self.get_show_episode_filename(show_id)
+        for record in db_filenames:
+            year = int(record['episode_airdate'].strftime("%y"))
+            decade = f"{(year // 10) % 10}0s"
+            filenames.append(f'{self.root_dir}/{decade}/{year}/{record["episode_file"]}')
+
+        print(f"Total Records Processed: {len(db_filenames)}")
+        return filenames
+
+    def get_training_annotations(self, segments: tuple) -> None:
+
+        file_path, segs = segments
+        print(file_path, segs)
+
+        bumpers = []
+        end_point = self.get_video_length(file_path)
+
+        if end_point is None:
+            print(f"Skipping file {file_path} (no duration found).")
+            return
+        try:
+            for timestamp in sorted(segs):
+                closer = min((0, end_point), key=lambda v: abs(timestamp - v))
+                print(closer)
+                if closer == 0:
+                    bumpers.append((0, round(timestamp, 2)))
+                else:
+                    bumpers.append((round(timestamp, 2), end_point))
+
+            content = []
+            if bumpers[0][0] == 0:
+                start_content = bumpers[0][1]
+                end_content = min(start_content + self.content_buffer, end_point)
+                content.append([start_content, end_content])
+            else:
+                content.append([0, min(self.content_buffer, end_point)])
+
+            if bumpers[-1][1] == end_point:
+                end_content =  bumpers[-1][0]
+                start_content = max(end_content - self.content_buffer, 0)
+                content.append([start_content, end_content])
+            else:
+                start_last = max(end_point - self.content_buffer, 0)
+                content.append([start_last, end_point])
+
+            annotation = {
+                "file_path": file_path,
+                "bumpers": bumpers if bumpers else None,
+                "commercials": None,
+                "content": content,
+                "video_duration": end_point
+            }
+            if annotation['bumpers'] or annotation['commercials']:
+                self._set_annotation_file(annotation)
+
+        except Exception as e:
+            print(f"Error processing training record {file_path}: {e}")
+
+
+    def get_model_annotations(self) -> None:
         """Generate annotations for episodes from a given show ID."""
         self._empty_annotations_directory()
-        db_filenames = self._get_db_filenames(show_id)
+
+        db_filenames = self._get_db_filenames()
         for record in db_filenames:
             try:
                 year = int(record['episode_airdate'].strftime("%y"))
@@ -148,8 +253,8 @@ class VideoAnnotationGenerator:
                     print(f"Skipping file {file_path} (no duration found).")
                     continue
 
-                outro = [record['end_point'], end_point] if record['end_point'] < (end_point - 2) else None
-                intro = [0, record['start_point']] if record['start_point'] > 3 else None
+                outro = [record['end_point'], end_point] if record['end_point'] < end_point else None
+                intro = [0, record['start_point']] if record['start_point'] > 0 else None
 
                 bumpers = [seg for seg in (intro, outro) if seg]
 

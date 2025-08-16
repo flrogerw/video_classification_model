@@ -1,13 +1,19 @@
+from time import sleep
+
 import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")  # or "Qt5Agg" if you have PyQt5/PySide2 installed
 import matplotlib.pyplot as plt
 import seaborn as sns
 import cv2
 import math
+
+from matplotlib.widgets import Button
 from sklearn.metrics import confusion_matrix
 from typing import Union, List, Optional
 from PIL import Image
 
-
+from classes.video_annotations import VideoAnnotationGenerator
 
 """
 Module: video_contact_sheet
@@ -27,6 +33,7 @@ extracting specific frames by timestamp or evenly spaced frames over an interval
     # Display contact sheet
     vcs.show_contact_sheet()
 """
+
 
 class VideoContactSheet:
     """
@@ -50,6 +57,9 @@ class VideoContactSheet:
         self.video_path = video_path
         self.cols = cols
         self.frames: List[Image.Image] = []
+        self.metadata: list[float] = []
+        self.clip_metadata: list[float] = []
+        self.annotations: list = []
 
     @staticmethod
     def frame_to_image(frame) -> Image.Image:
@@ -93,13 +103,13 @@ class VideoContactSheet:
         except Exception as e:
             print(f"[ERROR] Failed to get frame(s) at {timestamps}: {e}")
 
-    def extract_frames_interval(self, start_sec: float, end_sec: float, interval_sec: float) -> None:
+    def extract_frames_intervals(self, segments: list[tuple[float, float]], interval_sec: float,
+                                 on_click: bool = False) -> None:
         """
-        Extract frames at a fixed interval between start and end times.
+        Extract frames at a fixed interval for multiple (start, end) segments.
 
         Args:
-            start_sec: Start time in seconds.
-            end_sec: End time in seconds.
+            segments: List of (start_sec, end_sec) tuples.
             interval_sec: Interval between frames in seconds.
         """
         try:
@@ -111,31 +121,62 @@ class VideoContactSheet:
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = total_frames / fps if fps else 0
 
-            # Adjust invalid end time
-            if end_sec > duration or end_sec <= 0:
-                end_sec = duration
-
             self.frames.clear()
-            t = start_sec
+            self.clip_metadata.clear()
+            if not on_click:
+                self.metadata.clear()
 
-            while t <= end_sec:
-                cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                self.frames.append(self.frame_to_image(frame))
-                t += interval_sec
+            for start_sec, end_sec in segments:
+                # Adjust invalid end time
+                if end_sec > duration or end_sec <= 0:
+                    end_sec = duration
+                if start_sec < 0:
+                    start_sec = 0
+
+                t = start_sec
+                while t <= end_sec:
+                    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    # Draw timestamp (HH:MM:SS.mmm) on the frame
+                    timestamp_text = f"{t:0>8.3f}s"
+                    if not on_click:
+                        self.metadata.append(t)
+                    else:
+                        self.clip_metadata.append(t)
+                    cv2.putText(
+                        frame,
+                        timestamp_text,
+                        (10, 30),  # position (x, y)
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,  # font scale
+                        (0, 255, 0),  # text color (BGR)
+                        2,  # thickness
+                        cv2.LINE_AA
+                    )
+
+                    self.frames.append(self.frame_to_image(frame))
+                    t += interval_sec
 
             cap.release()
-        except Exception as e:
-            print(f"[ERROR] Failed to extract frames from {start_sec} to {end_sec} every {interval_sec}s: {e}")
 
-    def make_contact_sheet(self) -> Optional[Image.Image]:
+        except Exception as e:
+            print(f"[ERROR] Failed to extract frames from segments {segments} every {interval_sec}s: {e}")
+
+    def make_contact_sheet(self, return_grid: bool = False) -> Optional[tuple[Image.Image, tuple[int, int]]]:
         """
         Create a contact sheet from the collected frames.
 
+        Args:
+            return_grid: If True, also return (rows, cols) grid shape.
+
         Returns:
-            A PIL Image representing the contact sheet, or None if no frames exist.
+            If return_grid is False:
+                A PIL Image representing the contact sheet, or None if no frames exist.
+            If return_grid is True:
+                (sheet, (rows, cols)), or None if no frames exist.
         """
         try:
             if not self.frames:
@@ -150,22 +191,88 @@ class VideoContactSheet:
                 y = (idx // self.cols) * h
                 sheet.paste(frame, (x, y))
 
-            return sheet
+            if return_grid:
+                return sheet, (rows, self.cols)
+            else:
+                return sheet
+
         except Exception as e:
             print(f"[ERROR] Failed to create contact sheet: {e}")
             return None
 
-    def show_contact_sheet(self) -> None:
+    def show_contact_sheet(self, image_click: bool = False) -> None:
         """
         Display the generated contact sheet using matplotlib.
         """
         try:
-            sheet = self.make_contact_sheet()
+            sheet, grid_shape = self.make_contact_sheet(return_grid=True)
             if sheet is None:
                 return
-            plt.imshow(sheet)
+
+            # Create a bigger figure (width, height) in inches
+            fig, ax = plt.subplots(figsize=(12, 10))
+            plt.imshow(np.array(sheet))
             plt.axis('off')
+            plt.title(self.video_path, fontsize=12, pad=20)
+
+            def on_clear_click(event):
+                self.annotations.clear()
+
+            def on_button_click(event):
+                generator = VideoAnnotationGenerator()
+                if self.annotations:
+                    generator.get_training_annotations((self.video_path, self.annotations))
+                    self.annotations.clear()
+                plt.close(fig)
+
+            if not image_click:
+                button_ax = plt.axes([0.8, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
+                btn = Button(button_ax, "Process")
+                btn.on_clicked(on_button_click)
+
+                button_clear = plt.axes([0.2, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
+                btn_c = Button(button_clear, "Clear")
+                btn_c.on_clicked(on_clear_click)
+
+            # Compute cell width/height
+            nrows, ncols = grid_shape
+            w, h = sheet.size  # <-- use PIL .size
+            cell_w = w / ncols
+            cell_h = h / nrows
+
+            def on_click(event):
+                if event.inaxes != ax:  # click outside image
+                    return
+
+                # Compute which cell was clicked
+                col = int(event.xdata // cell_w)
+                row = int(event.ydata // cell_h)
+                idx = row * ncols + col
+                if 0 <= idx < len(self.metadata):
+                    meta = self.metadata[idx]
+                    self.extract_frames_intervals([(meta, meta + 8)], 0.2, on_click=True)
+                    self.show_contact_sheet(image_click=True)
+
+            def second_click(event):
+                if event.inaxes != ax:  # click outside image
+                    return
+
+                # Compute which cell was clicked
+                col = int(event.xdata // cell_w)
+                row = int(event.ydata // cell_h)
+                idx = row * ncols + col
+                if 0 <= idx < len(self.clip_metadata):
+                    meta = self.clip_metadata[idx]
+                    self.annotations.append(meta)
+                    sleep(0.5)
+                    plt.close(fig)
+
+            if image_click:
+                fig.canvas.mpl_connect("button_press_event", second_click)
+            else:
+                fig.canvas.mpl_connect("button_press_event", on_click)
             plt.show()
+
         except Exception as e:
             print(f"[ERROR] Failed to display contact sheet: {e}")
 
@@ -222,7 +329,6 @@ class ConfusionMatrix:
         plt.ylabel('Actual')
         plt.title(f'Confusion Matrix - Epoch {epoch + 1}')
         plt.show()
-
 
 
 class ConfidenceGraph:
