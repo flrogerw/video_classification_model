@@ -60,6 +60,7 @@ class VideoContactSheet:
         self.metadata: list[float] = []
         self.clip_metadata: list[float] = []
         self.annotations: list = []
+        self.generator = VideoAnnotationGenerator()
 
     @staticmethod
     def frame_to_image(frame) -> Image.Image:
@@ -215,13 +216,16 @@ class VideoContactSheet:
             plt.axis('off')
             plt.title(self.video_path, fontsize=12, pad=20)
 
+            def on_content_click(event):
+                self.generator.get_training_annotations((self.video_path, []))
+                plt.close(fig)
+
             def on_clear_click(event):
                 self.annotations.clear()
 
             def on_button_click(event):
-                generator = VideoAnnotationGenerator()
                 if self.annotations:
-                    generator.get_training_annotations((self.video_path, self.annotations))
+                    self.generator.get_training_annotations((self.video_path, self.annotations))
                     self.annotations.clear()
                 plt.close(fig)
 
@@ -229,6 +233,11 @@ class VideoContactSheet:
                 button_ax = plt.axes([0.8, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
                 btn = Button(button_ax, "Process")
                 btn.on_clicked(on_button_click)
+
+                button_content = plt.axes([0.65, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
+                btn_o = Button(button_content, "Content Only")
+                btn_o.on_clicked(on_content_click)
+
 
                 button_clear = plt.axes([0.2, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
                 btn_c = Button(button_clear, "Clear")

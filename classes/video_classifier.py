@@ -203,6 +203,8 @@ class VideoFrameClipDataset(Dataset):
         if not ret:
             raise RuntimeError(f"Could not read frame at {timestamp}s in {video_path}")
 
+        print(f"[DEBUG] idx={idx}, video={video_path}, ts={timestamp}, frame.shape={getattr(frame, 'shape', None)}")
+
         # Skip black frames
         if self.is_black_frame(frame):
             return torch.zeros((512,), device=self.device), torch.tensor(-1).to(self.device)
@@ -348,20 +350,33 @@ class VideoFrameClipDataset(Dataset):
         # Default to content (2) if no other intervals matched
         return 0
 
-    def is_black_frame(self, frame: np.ndarray) -> bool:
+    @staticmethod
+    def is_black_frame(frame, threshold: int = 10, ratio: float = 0.98) -> bool:
         """
-        Check if frame is black or lacks motion.
+        Determine if a frame is (mostly) black.
 
         Args:
-            frame: BGR frame.
+            frame: Numpy array from cv2.VideoCapture (H, W, C) or (H, W).
+            threshold: Pixel intensity below which a pixel is considered "black".
+            ratio: Proportion of pixels that must be below threshold
+                   for the frame to be considered black.
 
         Returns:
-            True if black or low motion, else False.
+            True if frame is black, False otherwise.
         """
+        if frame is None:
+            return True  # treat missing frames as black
+
+        # If grayscale, expand to 3 channels for consistency
+        if len(frame.shape) == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+        # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        motion_val = 0.0
-        if self.prev_frame is not None:
-            diff = cv2.absdiff(gray, self.prev_frame)
-            motion_val = float(np.mean(diff))
-        self.prev_frame = gray
-        return gray.mean() < self.black_threshold or motion_val < self.motion_threshold
+
+        # Count how many pixels are below threshold
+        num_black = np.sum(gray < threshold)
+        total_pixels = gray.size
+
+        return (num_black / total_pixels) >= ratio
+

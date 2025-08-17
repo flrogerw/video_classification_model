@@ -133,7 +133,7 @@ class VideoAnnotationGenerator:
                               e.*,
                               ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn
                           FROM episodes e
-                          -- WHERE show_id = 97
+                          WHERE show_id > 201
                       )
                       SELECT *
                      FROM ranked
@@ -207,35 +207,34 @@ class VideoAnnotationGenerator:
                 else:
                     bumpers.append((round(timestamp, 2), end_point))
 
-            content = []
-            if bumpers[0][0] == 0:
-                start_content = bumpers[0][1]
-                end_content = min(start_content + self.content_buffer, end_point)
-                content.append([start_content, end_content])
-            else:
-                content.append([0, min(self.content_buffer, end_point)])
-
-            if bumpers[-1][1] == end_point:
-                end_content =  bumpers[-1][0]
-                start_content = max(end_content - self.content_buffer, 0)
-                content.append([start_content, end_content])
-            else:
-                start_last = max(end_point - self.content_buffer, 0)
-                content.append([start_last, end_point])
-
-            annotation = {
-                "file_path": file_path,
-                "bumpers": bumpers if bumpers else None,
-                "commercials": None,
-                "content": content,
-                "video_duration": end_point
-            }
-            if annotation['bumpers'] or annotation['commercials']:
-                self._set_annotation_file(annotation)
-
         except Exception as e:
             print(f"Error processing training record {file_path}: {e}")
 
+        content = []
+        if bumpers and bumpers[0][0] == 0:
+            start_content = bumpers[0][1]
+            end_content = min(start_content + self.content_buffer, end_point)
+            content.append([start_content, end_content])
+        else:
+            content.append([0, min(self.content_buffer, end_point)])
+
+        if bumpers and bumpers[-1][1] == end_point:
+            end_content = bumpers[-1][0]
+            start_content = max(end_content - self.content_buffer, 0)
+            content.append([start_content, end_content])
+        else:
+            start_last = max(end_point - self.content_buffer, 0)
+            content.append([start_last, end_point])
+
+        annotation = {
+            "file_path": file_path,
+            "bumpers": bumpers if bumpers else None,
+            "commercials": None,
+            "content": content,
+            "video_duration": end_point
+        }
+        # if annotation['bumpers'] or annotation['commercials']:
+        self._set_annotation_file(annotation)
 
     def get_model_annotations(self) -> None:
         """Generate annotations for episodes from a given show ID."""
