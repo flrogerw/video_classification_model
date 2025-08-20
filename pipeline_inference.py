@@ -23,12 +23,13 @@ import torch
 from classes.closeness_trainer import StartDurationClosenessTrainer
 from classes.video_annotations import VideoAnnotationGenerator
 from classes.video_inference import VideoSegmentPredictor
+from classes.video_utils import VideoContactSheet
 
 # Select computation device (CUDA if available, else CPU)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
-SHOW_ID = 6  #6 abbot 97 martian
+SHOW_ID = 1  #6 abbot 97 martian
 DEV_MODE = True
 
 try:
@@ -98,7 +99,7 @@ try:
 
                     total_confidence = (confidence + probs[0]) / 2
 
-                    outcome = 'TRUE' if confidence > .99 else 'FALSE'
+                    outcome = 'TRUE' if confidence > .985 else 'FALSE'
                     print(
                         f"  {start_str}({round(start, 2)}) - {end_str}({round(end, 2)}) Confidence: {total_confidence} Video: {confidence} Closeness: {round(probs[0], 5)}  {outcome}")
 
@@ -109,9 +110,20 @@ try:
                         else:
                             save_end = round(start, 2)
 
+                    if start:
+                        samples = [(max(0.0, start - 2), min(video_duration, start + 2))]
+                    else:
+                        samples = [(0.0, 2.0), (video_duration - 2, video_duration)]
+
+                    print(samples)
+                    vcs = VideoContactSheet(video_path, cols=6)
+                    vcs.extract_frames_intervals(segments=samples, interval_sec=0.5)
+                    vcs.save_contact_sheet("xxxxxxxxxx")
+
             print(f"    Final: {save_start} - {save_end}")
             if not DEV_MODE:
                 generator.update_episode_start_end(save_start, save_end, os.path.basename(video_path))
+
 
         except FileNotFoundError:
             print(f"Video file not found: {video_path}")

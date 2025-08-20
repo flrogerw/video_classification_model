@@ -36,7 +36,7 @@ device = "cuda" if torch.cuda.is_available() else "mps"
 # Step 1: Generate video annotations
 # Step 2: Train CLIP-based classifier
 # Step 3: Train XGBoost meta and closeness classifiers
-steps_to_run = [3]
+steps_to_run = [2]
 
 try:
     # Step 1: Generate video annotations

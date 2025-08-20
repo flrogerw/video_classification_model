@@ -133,11 +133,11 @@ class VideoAnnotationGenerator:
                               e.*,
                               ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn
                           FROM episodes e
-                          WHERE show_id > 201
+                          WHERE show_id = 5
                       )
                       SELECT *
                      FROM ranked
-                     WHERE rn <= 4 ORDER BY show_id;"""
+                     WHERE rn <= 1 ORDER BY show_id;"""
 
         try:
             conn = psycopg2.connect(**self.db_config)

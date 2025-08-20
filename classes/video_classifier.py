@@ -90,7 +90,7 @@ class VideoFrameClipDataset(Dataset):
             self,
             annotation_dir: str,
             clip_model: str,
-            black_threshold: float = 1.0,
+            black_threshold: float = os.getenv('BLACK_THRESHOLD'),
             motion_threshold: float = 2.0,
             interval_sec: float = 1.0,
             content_fps: float = 1.0
@@ -203,10 +203,8 @@ class VideoFrameClipDataset(Dataset):
         if not ret:
             raise RuntimeError(f"Could not read frame at {timestamp}s in {video_path}")
 
-        print(f"[DEBUG] idx={idx}, video={video_path}, ts={timestamp}, frame.shape={getattr(frame, 'shape', None)}")
-
         # Skip black frames
-        if self.is_black_frame(frame):
+        if self.is_black_frame(frame, self.black_threshold):
             return torch.zeros((512,), device=self.device), torch.tensor(-1).to(self.device)
 
         # Convert and preprocess frame
