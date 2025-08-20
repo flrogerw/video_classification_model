@@ -3,7 +3,7 @@ import psycopg2
 from distributed_tasks import process_video
 from psycopg2.extras import RealDictCursor
 
-ROOT_DIR = os.getenv("PI_ROOT_DIR")
+ROOT_DIR = os.getenv("ROOT_DIR")
 
 db_config = {
     'dbname': os.getenv("DB_NAME"),
@@ -23,7 +23,7 @@ def get_file_path(airdate, episode_file):
 def get_video_jobs():
     video_jobs = []  # always define up front
     try:
-        query = "SELECT episode_id, episode_file, episode_airdate FROM episodes WHERE processed = false AND episode_airdate < '1990-01-01' LIMIT 1"
+        query = "SELECT episode_id, episode_file, episode_airdate FROM episodes WHERE processed = false AND episode_airdate < '1990-01-01' LIMIT 100"
         conn = psycopg2.connect(**db_config)
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(query)

@@ -1,5 +1,7 @@
 import os
 import ast
+
+import numpy as np
 import torch
 from celery import states
 from celery.exceptions import Ignore
@@ -31,6 +33,15 @@ try:
 except Exception as e:
     raise RuntimeError(f"Model initialization failed: {e}")
 
+def sanitize(obj):
+    if isinstance(obj, dict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [sanitize(v) for v in obj]
+    elif isinstance(obj, np.generic):  # float32, int64, etc.
+        return obj.item()
+    else:
+        return obj
 
 @celery_app.task(bind=True)
 def process_video(self, video_path: str, episode_id: int = None, dev_mode: bool = True):
@@ -85,14 +96,14 @@ def process_video(self, video_path: str, episode_id: int = None, dev_mode: bool 
                 )
 
                 total_confidence = (confidence + probs[0]) / 2
-                outcome = "TRUE" if confidence > 0.99 else "FALSE"
+                outcome = "TRUE" if confidence > 0.985 else "FALSE"
 
                 segment_result = {
                     "start": start,
                     "end": end,
-                    "confidence": total_confidence,
+                    "confidence": float(total_confidence),
                     "video_confidence": confidence,
-                    "closeness_confidence": probs[0],
+                    "closeness_confidence": float(probs[0]),
                     "outcome": outcome,
                 }
 
@@ -101,7 +112,10 @@ def process_video(self, video_path: str, episode_id: int = None, dev_mode: bool 
                 # Stream progress back
                 self.update_state(
                     state="PROGRESS",
-                    meta={"video": video_path, "segment": segment_result},
+                    meta={
+                        "video": str(video_path),
+                        "segment": sanitize(segment_result),
+                    },
                 )
 
                 if confidence > 0.985:

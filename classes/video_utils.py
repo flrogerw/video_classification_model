@@ -201,6 +201,29 @@ class VideoContactSheet:
             print(f"[ERROR] Failed to create contact sheet: {e}")
             return None
 
+    def save_contact_sheet(self, output_path: str) -> None:
+        """
+        Generate and save the contact sheet to disk without displaying it.
+        """
+        try:
+            sheet, grid_shape = self.make_contact_sheet(return_grid=True)
+            if sheet is None:
+                return
+
+            # Create a figure for saving (no interactive buttons)
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.imshow(np.array(sheet))
+            ax.axis('off')
+            ax.set_title(self.video_path, fontsize=12, pad=20)
+
+            # Save the contact sheet
+            fig.savefig(output_path, bbox_inches="tight", pad_inches=0.1)
+            plt.close(fig)
+
+            print(f"[INFO] Contact sheet saved to {output_path}")
+        except Exception as e:
+            print(f"[ERROR] Failed to save contact sheet: {e}")
+
     def show_contact_sheet(self, image_click: bool = False) -> None:
         """
         Display the generated contact sheet using matplotlib.
@@ -218,6 +241,9 @@ class VideoContactSheet:
 
             def on_content_click(event):
                 self.generator.get_training_annotations((self.video_path, []))
+                plt.close(fig)
+
+            def on_skip_click(event):
                 plt.close(fig)
 
             def on_clear_click(event):
@@ -238,6 +264,9 @@ class VideoContactSheet:
                 btn_o = Button(button_content, "Content Only")
                 btn_o.on_clicked(on_content_click)
 
+                button_skip = plt.axes([0.35, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
+                btn_s = Button(button_skip, "Skip")
+                btn_s.on_clicked(on_skip_click)
 
                 button_clear = plt.axes([0.2, 0.02, 0.1, 0.05])  # [left, bottom, width, height]
                 btn_c = Button(button_clear, "Clear")
