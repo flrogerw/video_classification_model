@@ -24,7 +24,6 @@ import torch
 from classes.closeness_trainer import StartDurationClosenessTrainer
 from classes.video_classifier import ClipFrameClassifier
 from classes.video_trainer import ClipClassifierTrainer
-from classes.xgboost_trainer import SegmentMetaTrainer
 from classes.video_annotations import VideoAnnotationGenerator
 
 # Determine whether to retrain existing model based on environment variable
@@ -37,7 +36,7 @@ device = "cuda" if torch.cuda.is_available() else "mps"
 # Step 1: Generate video annotations
 # Step 2: Train CLIP-based classifier
 # Step 3: Train XGBoost meta and closeness classifiers
-steps_to_run = [2]
+steps_to_run = [3]
 
 try:
     # Step 1: Generate video annotations
@@ -71,19 +70,16 @@ try:
     # Step 3: Train XGBoost meta-classifier and closeness-classifier
     if 3 in steps_to_run:
         # Load the classifier trainers
-        meta_trainer = SegmentMetaTrainer()
         closeness = StartDurationClosenessTrainer()
 
         # Create feature sets
-        features, labels = meta_trainer.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
-        start_times, durations = closeness.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
+        start_times, durations = closeness.load_annotations(os.getenv("ANNOTATIONS_DIR"))
+        #start_times, durations = closeness.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
 
         # Train the classifiers
-        meta_trainer.train(features, labels)
         closeness.train(start_times, durations)
 
         # Save the trained classifiers
-        meta_trainer.save_model(os.getenv("BOOST_MODEL"))
         closeness.save_model(os.getenv("CLOSENESS_MODEL"))
 
 except FileNotFoundError as fnf_err:

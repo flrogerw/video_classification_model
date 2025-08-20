@@ -82,7 +82,7 @@ class VideoSegmentPredictor:
             video_path: str,
             device: str,
             target_classes=None,
-    ) -> List[Tuple[float, int]]:
+    ) -> List[Tuple[float, int, float]]:
         """
         Predict segments in a video where specific classes appear.
 
@@ -116,7 +116,7 @@ class VideoSegmentPredictor:
             start_window_end = self.read_length
             end_window_start = duration - self.read_length
 
-            timestamped_classes: List[Tuple[float, int]] = []
+            timestamped_classes: List[Tuple[float, int, float]] = []
             frame_idx = 0
 
             success, frame = cap.read()
@@ -126,7 +126,7 @@ class VideoSegmentPredictor:
                 # Only process frames in the first N or last N seconds
                 if timestamp_sec <= start_window_end or timestamp_sec >= end_window_start:
                     if self.is_black_frame(frame, threshold=self.black_threshold):
-                        timestamped_classes.append((frame_idx / fps, -1))
+                        timestamped_classes.append((frame_idx / fps, -1, 1))
                         success, frame = cap.read()
                         frame_idx += 1
                         continue
@@ -141,6 +141,7 @@ class VideoSegmentPredictor:
                         probs = torch.softmax(output, dim=1)
 
                     max_prob, predicted_class = torch.max(probs, dim=1)
+                    confidence = max_prob.item()
 
                     # Store timestamp if it meets target and confidence threshold
                     if (
@@ -148,7 +149,7 @@ class VideoSegmentPredictor:
                             and predicted_class.item() in target_classes
                             and max_prob.item() > self.confidence_threshold
                     ):
-                        timestamped_classes.append((frame_idx / fps, predicted_class.item()))
+                        timestamped_classes.append((frame_idx / fps, predicted_class.item(), confidence))
 
                 success, frame = cap.read()
                 frame_idx += 1
@@ -161,43 +162,49 @@ class VideoSegmentPredictor:
 
     @staticmethod
     def group_segments(
-            timestamped_classes: List[Tuple[float, int]],
+            timestamped_classes: List[Tuple[float, int, float]],
             max_gap: float = 5.0,
-    ) -> Dict[int, List[Tuple[float, float]]]:
+    ) -> Dict[int, List[Tuple[float, float, float]]]:
         """
         Group timestamps by class into continuous segments, ignoring
-        any segments of 1 second or less.
+        any segments of 1 second or less. Computes average confidence per segment.
 
         Args:
-            timestamped_classes: List of (timestamp_seconds, class_id) tuples.
+            timestamped_classes: List of (timestamp_seconds, class_id, confidence) tuples.
             max_gap: Max gap between consecutive timestamps (in seconds) to be grouped.
 
         Returns:
-            Dictionary mapping class_id to list of (start_time, end_time) tuples.
+            Dictionary mapping class_id to list of (start_time, end_time, avg_confidence) tuples.
         """
         class_groups = defaultdict(list)
 
         # Group timestamps by class
-        for ts, cls in timestamped_classes:
-            class_groups[cls].append(ts)
+        for ts, cls, conf in timestamped_classes:
+            class_groups[cls].append((ts, conf))
 
-        grouped_segments: Dict[int, List[Tuple[float, float]]] = {}
-        for cls, timestamps in class_groups.items():
-            timestamps.sort()
-            segments: List[Tuple[float, float]] = []
-            start = timestamps[0]
-            prev = timestamps[0]
+        grouped_segments: Dict[int, List[Tuple[float, float, float]]] = {}
+        for cls, values in class_groups.items():
+            values.sort(key=lambda x: x[0])  # sort by timestamp
+            segments: List[Tuple[float, float, float]] = []
+            start = values[0][0]
+            prev = values[0][0]
+            confs = [values[0][1]]
 
-            for t in timestamps[1:]:
+            for t, conf in values[1:]:
                 if t - prev > max_gap:
                     if prev - start > 1.0:  # Ignore short segments
-                        segments.append((start, prev))
+                        avg_conf = sum(confs) / len(confs)
+                        segments.append((start, prev, avg_conf))
                     start = t
+                    confs = [conf]
+                else:
+                    confs.append(conf)
                 prev = t
 
             # Add final segment if valid
             if prev - start > 1.0:
-                segments.append((start, prev))
+                avg_conf = sum(confs) / len(confs)
+                segments.append((start, prev, avg_conf))
 
             grouped_segments[cls] = segments
 

@@ -23,13 +23,12 @@ import torch
 from classes.closeness_trainer import StartDurationClosenessTrainer
 from classes.video_annotations import VideoAnnotationGenerator
 from classes.video_inference import VideoSegmentPredictor
-from classes.xgboost_trainer import SegmentMetaTrainer
 
 # Select computation device (CUDA if available, else CPU)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
-SHOW_ID = 6
+SHOW_ID = 6  #6 abbot 97 martian
 DEV_MODE = True
 
 try:
@@ -44,11 +43,7 @@ try:
         path=os.getenv("INFERENCE_CLIP")
     )
 
-    # Step 2: Initialize and load the meta-classifier
-    meta_predictor = SegmentMetaTrainer()
-    meta_predictor.load_model(os.getenv("INFERENCE_BOOST"))
-
-    # Step 2.5: Initialize and load the closeness-classifier
+    # Step 2: Initialize and load the closeness-classifier
     closeness = StartDurationClosenessTrainer()
     closeness.load_model(os.getenv("INFERENCE_CLOSENESS"))
 
@@ -66,50 +61,53 @@ try:
             segments = clip_predictor.predict_video_segments(
                 video_path,
                 device=device,
-                target_classes=[1,2]
+                target_classes=[1, 2]
             )
 
             # Group predicted frames into continuous time intervals
             grouped_segments = clip_predictor.group_segments(segments)
 
+            # Removes beginning and end black frames
+            if grouped_segments[-1] and (save_start == 0 or save_end == video_duration):
+                black_outs = grouped_segments[-1]
+                closer = min((0, video_duration), key=lambda v: abs(black_outs[0][0] - v))
+                if closer == 0:
+                    if black_outs[0][0] == 0:
+                        save_start = round(black_outs[0][1], 2)
+                if int(save_end) == int(black_outs[-1][1]) == int(video_duration):
+                    save_end = round(black_outs[-1][0], 2)
+
             # Process each class's grouped segments
             for cls, segs in grouped_segments.items():
                 if cls == -1:
                     continue
-                for start, end in segs:
+
+                for start, end, confidence in segs:
+
                     start_str = clip_predictor.seconds_to_min_sec(start)
                     end_str = clip_predictor.seconds_to_min_sec(end)
 
-                    # Extract features for the meta-classifier
-                    seg_features = meta_predictor.get_features(
-                        start_time=start,
-                        end_time=end,
-                        video_duration=video_duration
-                    )
-
-                    # Predict label for this segment
-                    predictions = meta_predictor.predict([seg_features])
-
                     # Predict closeness for this segment
-                    rel_start, rel_duration = closeness.get_features(start, end, video_duration)
+                    rel_start, rel_duration = closeness.get_features(start_time=start, end_time=end,
+                                                                     black_start_end=save_start,
+                                                                     black_end_start=save_end,
+                                                                     # video_path=video_path,
+                                                                     duration=video_duration)
+
                     probs = closeness.predict(start_times=[rel_start], durations=[rel_duration])
 
-                    outcome = 'TRUE' if probs[0] > .998 and predictions[0][1] > .9 else 'FALSE'
-                    print(f"  {start_str}({round(start, 2)}) - {end_str}({round(end, 2)}) Meta: {round(predictions[0][1],5)} Closeness: {round(probs[0], 5)}  {outcome}")
-                    if probs[0] > .998 and predictions[0][1] > .9:
+                    total_confidence = (confidence + probs[0]) / 2
+
+                    outcome = 'TRUE' if confidence > .99 else 'FALSE'
+                    print(
+                        f"  {start_str}({round(start, 2)}) - {end_str}({round(end, 2)}) Confidence: {total_confidence} Video: {confidence} Closeness: {round(probs[0], 5)}  {outcome}")
+
+                    if confidence > .985:
                         closer = min((0, video_duration), key=lambda v: abs(start - v))
                         if closer == 0:
                             save_start = round(end, 2)
                         else:
                             save_end = round(start, 2)
-
-            # Removes beginning and end black frames
-            if grouped_segments[-1] and (save_start == 0 or save_end == video_duration):
-                black_outs = grouped_segments[-1]
-                if save_start == black_outs[0][0] == 0:
-                    save_start = round(black_outs[0][-1], 2)
-                if save_end == black_outs[-1][1] == video_duration:
-                    save_end = round(black_outs[-1][0], 2)
 
             print(f"    Final: {save_start} - {save_end}")
             if not DEV_MODE:

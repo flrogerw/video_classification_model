@@ -351,7 +351,7 @@ class VideoFrameClipDataset(Dataset):
         return 0
 
     @staticmethod
-    def is_black_frame(frame, threshold: int = 10, ratio: float = 0.98) -> bool:
+    def is_black_frame(frame, threshold: float) -> bool:
         """
         Determine if a frame is (mostly) black.
 
@@ -373,10 +373,5 @@ class VideoFrameClipDataset(Dataset):
 
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Count how many pixels are below threshold
-        num_black = np.sum(gray < threshold)
-        total_pixels = gray.size
-
-        return (num_black / total_pixels) >= ratio
+        return gray.mean() < threshold
 

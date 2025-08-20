@@ -127,8 +127,8 @@ class VideoAnnotationGenerator:
 
     def get_show_episode_filename(self, show_id: int) -> List[Dict[str, Any]]:
         """Fetch episode records from the database for a given show ID. Used by inference"""
-        query2 = f"""SELECT * FROM episodes WHERE show_id = %s;"""
-        query = f"""WITH ranked AS (
+        query = f"""SELECT * FROM episodes WHERE show_id = %s;"""
+        query2 = f"""WITH ranked AS (
                           SELECT
                               e.*,
                               ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn

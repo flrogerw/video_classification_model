@@ -1,16 +1,73 @@
 import glob
 import json
+import os
 
+import cv2
 import numpy as np
 import xgboost as xgb
+
+from classes.video_classifier import VideoFrameClipDataset
 
 
 class StartDurationClosenessTrainer:
     def __init__(self, neg_ratio=5, random_state=42):
         self.neg_ratio = neg_ratio
         self.random_state = random_state
+        self.black_threshold = float(os.getenv('BLACK_THRESHOLD'))
 
         self.model = None
+
+    def find_black_segments(self, video_path: str, n_seconds: int = 30, sample_rate: float = 0.3):
+        """
+        Analyze the first and last `n_seconds` of a video to detect black frame regions.
+
+        Args:
+            video_path: Path to the video file.
+            n_seconds: Number of seconds from the start and end to analyze.
+            sample_rate: Interval in seconds between samples (e.g., 0.5 = 2 fps).
+
+        Returns:
+            (start_black_end, end_black_start)
+            start_black_end: Timestamp (in seconds) where black frames stop at the beginning.
+            end_black_start: Timestamp (in seconds) where black frames start at the end.
+        """
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video: {video_path}")
+
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / video_fps
+
+        start_black_end = 0.0
+        end_black_start = duration
+
+        # --- Analyze first n_seconds ---
+        start_frames = int(min(n_seconds * video_fps, frame_count))
+        for i in range(0, start_frames, int(video_fps * sample_rate)):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            ret, frame = cap.read()
+            if not ret:
+                break
+            ts = i / video_fps
+            if not VideoFrameClipDataset.is_black_frame(frame, threshold=self.black_threshold):
+                start_black_end = ts
+                break
+
+        # --- Analyze last n_seconds ---
+        end_start_frame = max(0, frame_count - int(n_seconds * video_fps))
+        for i in range(frame_count - 1, end_start_frame, -int(video_fps * sample_rate)):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            ts = i / video_fps
+            if not VideoFrameClipDataset.is_black_frame(frame, threshold=self.black_threshold):
+                end_black_start = ts
+                break
+
+        cap.release()
+        return round(start_black_end, 2), round(end_black_start, 2)
 
     def train(self, start_times, durations):
         """
@@ -114,19 +171,35 @@ class StartDurationClosenessTrainer:
 
             for label_name in ["bumpers", "commercials"]:
                 for seg in data.get(label_name) or []:
-                    print(data)
-
                     start_time, end_time = seg
-                    rel_start, rel_duration = self.get_features(start_time, end_time, data.get('video_duration'))
+
+                    rel_start, rel_duration = self.get_features(start_time=start_time, end_time=end_time,
+                                                                video_path=data.get('file_path'),
+                                                                duration=data.get('video_duration'))
                     start_times.append(rel_start)
                     durations.append(rel_duration)
 
         return np.array(start_times), np.array(durations)
 
-    @staticmethod
-    def get_features(start_time: float, end_time: float, video_duration: float) -> tuple:
-        rel_start, rel_end = StartDurationClosenessTrainer.normalize_times(start_time, end_time, video_duration)
-        rel_duration = (end_time - start_time) / video_duration
+    def get_features(self, start_time: float, end_time: float, duration: float, black_start_end: float | None = None,
+                     black_end_start: float | None = None, video_path: str | None = None) -> tuple:
+
+        # Find and remove beginning/end black screens.  Foobars closeness when large amounts of black frames.
+        if video_path:
+            black_start_end, black_end_start = self.find_black_segments(video_path, n_seconds=30)
+
+        closer_to = min((0, duration), key=lambda v: abs(start_time - v))
+        if closer_to == 0:
+            virt_start_time = start_time - black_start_end
+            virt_end_time = end_time - black_start_end
+        else:
+            virt_start_time = start_time - (duration - black_end_start)
+            virt_end_time = end_time - (duration - black_end_start)
+
+        virt_duration = (black_end_start - black_start_end)
+
+        rel_start, rel_end = StartDurationClosenessTrainer.normalize_times(virt_start_time, virt_end_time, virt_duration)
+        rel_duration = (virt_end_time - virt_start_time) / virt_duration
         return rel_start, rel_duration
 
     @staticmethod
