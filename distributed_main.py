@@ -3,7 +3,7 @@ import psycopg2
 from distributed_tasks import process_video
 from psycopg2.extras import RealDictCursor
 
-ROOT_DIR = os.getenv("ROOT_DIR")
+ROOT_DIR = os.getenv("DIR_ROOT")
 
 db_config = {
     'dbname': os.getenv("DB_NAME"),

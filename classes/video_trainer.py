@@ -26,15 +26,16 @@ class ClipClassifierTrainer:
 
         # Config from env
         self.confusion_matrix_enabled = os.getenv("CONFUSION_MATRIX", "False").lower() in ("true", "1", "yes")
-        self.annotations_dir: Optional[str] = os.getenv("ANNOTATIONS_DIR")
-        self.black_threshold: float = float(os.getenv("BLACK_THRESHOLD", 1.0))
-        self.motion_threshold: float = float(os.getenv("MOTION_THRESHOLD", 2.0))
-        self.clip_model_name: Optional[str] = os.getenv("CLIP_MODEL")
+        self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS_ALL")
+        # self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS")
+        self.black_threshold: float = float(os.getenv("THRESHOLD_BLACK", 1.0))
+        self.motion_threshold: float = float(os.getenv("THRESHOLD_MOTION", 2.0))
+        self.clip_model_name: Optional[str] = os.getenv("MODEL_CLIP_BASE")
         self.fps_interval: float = float(os.getenv("FPS", 0.3))
-        self.content_fps: float = float(os.getenv("CONTENT_FPS", 1.0))
-        self.balance_tolerance: float = float(os.getenv("BALANCE_TOLERANCE", 1.0))
-        self.batch_size: int = int(os.getenv("DATA_BATCH_SIZE", 32))
-        self.epochs: int = int(os.getenv("EPOCH_COUNT", 10))
+        self.content_fps: float = float(os.getenv("FPS_CONTENT", 1.0))
+        self.balance_tolerance: float = float(os.getenv("THRESHOLD_BALANCE", 8.0))
+        self.batch_size: int = int(os.getenv("COUNT_DATA_BATCH", 32))
+        self.epochs: int = int(os.getenv("COUNT_EPOCH", 10))
 
     def _load_dataset(self) -> Subset:
         """Load and return the balanced dataset."""

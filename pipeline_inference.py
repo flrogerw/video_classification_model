@@ -18,6 +18,8 @@ Modules:
 
 import ast
 import os
+from pathlib import Path
+
 import torch
 
 from classes.closeness_trainer import StartDurationClosenessTrainer
@@ -29,8 +31,9 @@ from classes.video_utils import VideoContactSheet
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
-SHOW_ID = 1  #6 abbot 97 martian
+SHOW_ID = 97 #6 abbot 97 martian
 DEV_MODE = True
+MODEL_INFERENCE_CLIP = os.path.expandvars(os.getenv("MODEL_INFERENCE_CLIP"))
 
 try:
     # Load target classes from environment variable
@@ -41,18 +44,19 @@ try:
     clip_predictor.load_clip_model(device=device)
     clip_predictor.load_trained_model(
         device=device,
-        path=os.getenv("INFERENCE_CLIP")
+        path=MODEL_INFERENCE_CLIP
     )
 
     # Step 2: Initialize and load the closeness-classifier
     closeness = StartDurationClosenessTrainer()
-    closeness.load_model(os.getenv("INFERENCE_CLOSENESS"))
+    closeness.load_model(os.getenv("MODEL_CLOSENESS"))
 
     # Step 3: List of videos for inference
     generator = VideoAnnotationGenerator()
     inference_videos = generator.get_inference_filenames(show_id=SHOW_ID)
 
     for video_path in inference_videos:
+        samples = []
         try:
             # Get video duration
             video_duration = save_end = generator.get_video_length(filename=video_path)
@@ -110,15 +114,22 @@ try:
                         else:
                             save_end = round(start, 2)
 
-                    if start:
-                        samples = [(max(0.0, start - 2), min(video_duration, start + 2))]
-                    else:
-                        samples = [(0.0, 2.0), (video_duration - 2, video_duration)]
+                        if save_start > 0:
+                            samples.append((max(0.0, save_start - 2), save_start))
+                        samples.append((save_start, save_start + 2))
 
-                    print(samples)
-                    vcs = VideoContactSheet(video_path, cols=6)
-                    vcs.extract_frames_intervals(segments=samples, interval_sec=0.5)
-                    vcs.save_contact_sheet("xxxxxxxxxx")
+                        samples.append((max(0.0, save_end - 2), save_end))
+                        if save_end <= video_duration + 2:
+                            samples.append((save_end, save_end + 2))
+
+            if not samples:
+                samples.append((0.0, 2.0))
+                samples.append((video_duration - 2, video_duration))
+
+            vcs = VideoContactSheet(video_path, cols=6)
+            vcs.extract_frames_intervals(segments=samples, interval_sec=0.5)
+            filename = Path(video_path).stem
+            vcs.save_contact_sheet(f"contact_sheets/{filename}")
 
             print(f"    Final: {save_start} - {save_end}")
             if not DEV_MODE:

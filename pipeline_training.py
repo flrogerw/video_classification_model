@@ -27,7 +27,8 @@ from classes.video_trainer import ClipClassifierTrainer
 from classes.video_annotations import VideoAnnotationGenerator
 
 # Determine whether to retrain existing model based on environment variable
-RETRAIN = os.getenv("RETRAIN", "False") == "True"
+RETRAIN = os.getenv("BOOL_RETRAIN", "False") == "True"
+MODEL_DIMENSION = int(os.getenv('MODEL_CLIP_DIMENSION'))
 
 # Select device: CUDA if available, otherwise MPS (Apple Silicon) or CPU
 device = "cuda" if torch.cuda.is_available() else "mps"
@@ -49,13 +50,13 @@ try:
         clip_trainer = ClipClassifierTrainer()
 
         # Load CLIP model and preprocessing pipeline
-        clip_model, preprocess = clip.load(os.getenv("CLIP_MODEL"), device=device)
+        clip_model, preprocess = clip.load(os.getenv("MODEL_CLIP_BASE"), device=device)
 
         # If retraining, load saved model; otherwise, create a new classifier instance
         model = (
-            torch.load(os.getenv("MODEL"), weights_only=False)
+            torch.load(os.path.expandvars(os.getenv("MODEL_CLIP")), weights_only=False)
             if RETRAIN
-            else ClipFrameClassifier(input_dim=512, num_classes=2).to(device)
+            else ClipFrameClassifier(input_dim=MODEL_DIMENSION, num_classes=2).to(device)
         )
 
         # Train the model
@@ -63,7 +64,7 @@ try:
 
         # Save the trained model (prefix "retrained_" if retraining)
         save_model = (
-            os.getenv("RETRAIN_MODEL") if RETRAIN else os.getenv("MODEL")
+            os.path.expandvars(os.getenv("MODEL_RETRAIN")) if RETRAIN else os.path.expandvars(os.getenv("MODEL_CLIP"))
         )
         torch.save(model, save_model)
 
@@ -73,14 +74,14 @@ try:
         closeness = StartDurationClosenessTrainer()
 
         # Create feature sets
-        start_times, durations = closeness.load_annotations(os.getenv("ANNOTATIONS_DIR"))
-        #start_times, durations = closeness.load_annotations(os.getenv("ALL_ANNOTATIONS_DIR"))
+        start_times, durations = closeness.load_annotations(os.getenv("DIR_ANNOTATIONS"))
+        # start_times, durations = closeness.load_annotations(os.getenv("DIR_ANNOTATIONS_ALL"))
 
         # Train the classifiers
         closeness.train(start_times, durations)
 
         # Save the trained classifiers
-        closeness.save_model(os.getenv("CLOSENESS_MODEL"))
+        closeness.save_model(os.getenv("MODEL_CLOSENESS"))
 
 except FileNotFoundError as fnf_err:
     print(f"File not found: {fnf_err}")

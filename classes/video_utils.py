@@ -127,8 +127,8 @@ class VideoContactSheet:
             if not on_click:
                 self.metadata.clear()
 
-            for start_sec, end_sec in segments:
-                # Adjust invalid end time
+            for i, (start_sec, end_sec) in enumerate(segments):
+                # Adjust invalid times
                 if end_sec > duration or end_sec <= 0:
                     end_sec = duration
                 if start_sec < 0:
@@ -141,25 +141,32 @@ class VideoContactSheet:
                     if not ret:
                         break
 
-                    # Draw timestamp (HH:MM:SS.mmm) on the frame
                     timestamp_text = f"{t:0>8.3f}s"
                     if not on_click:
-                        self.metadata.append(t)
+                        self.metadata.append((t, start_sec, end_sec))
                     else:
-                        self.clip_metadata.append(t)
+                        self.clip_metadata.append((t, start_sec, end_sec))
+
                     cv2.putText(
                         frame,
                         timestamp_text,
-                        (10, 30),  # position (x, y)
+                        (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        1,  # font scale
-                        (0, 255, 0),  # text color (BGR)
-                        2,  # thickness
+                        1,
+                        (0, 255, 0),
+                        2,
                         cv2.LINE_AA
                     )
 
                     self.frames.append(self.frame_to_image(frame))
                     t += interval_sec
+                self.frames.append(None)
+                self.metadata.append(None)
+
+                # Insert a marker for a line break between segments
+                if i < len(segments) - 1:
+                    self.frames.append(None)
+                    self.metadata.append(None)
 
             cap.release()
 
@@ -168,7 +175,7 @@ class VideoContactSheet:
 
     def make_contact_sheet(self, return_grid: bool = False) -> Optional[tuple[Image.Image, tuple[int, int]]]:
         """
-        Create a contact sheet from the collected frames.
+        Create a contact sheet from the collected frames, inserting a line break between segments.
 
         Args:
             return_grid: If True, also return (rows, cols) grid shape.
@@ -184,13 +191,35 @@ class VideoContactSheet:
                 raise ValueError("No frames extracted to make contact sheet.")
 
             w, h = self.frames[0].size
-            rows = math.ceil(len(self.frames) / self.cols)
-            sheet = Image.new("RGB", (self.cols * w, rows * h))
 
-            for idx, frame in enumerate(self.frames):
-                x = (idx % self.cols) * w
-                y = (idx // self.cols) * h
-                sheet.paste(frame, (x, y))
+            # Count actual frames to compute rows
+            num_actual_frames = len([f for f in self.frames if f is not None])
+            # Estimate rows; we'll adjust y dynamically for line breaks
+            rows = math.ceil(num_actual_frames / self.cols) + len([f for f in self.frames if f is None])
+            sheet = Image.new("RGB", (self.cols * w, rows * h), color="white")
+
+            x_offset = 0
+            y_offset = 0
+            col_count = 0
+
+            for frame in self.frames:
+                if frame is None:
+                    # Line break between segments
+                    x_offset = 0
+                    y_offset += h
+                    col_count = 0
+                    continue
+
+                sheet.paste(frame, (x_offset, y_offset))
+
+                col_count += 1
+                x_offset += w
+
+                if col_count >= self.cols:
+                    # Move to next row
+                    x_offset = 0
+                    y_offset += h
+                    col_count = 0
 
             if return_grid:
                 return sheet, (rows, self.cols)
@@ -211,7 +240,7 @@ class VideoContactSheet:
                 return
 
             # Create a figure for saving (no interactive buttons)
-            fig, ax = plt.subplots(figsize=(12, 10))
+            fig, ax = plt.subplots(figsize=(16, 12))
             ax.imshow(np.array(sheet))
             ax.axis('off')
             ax.set_title(self.video_path, fontsize=12, pad=20)
@@ -220,7 +249,6 @@ class VideoContactSheet:
             fig.savefig(output_path, bbox_inches="tight", pad_inches=0.1)
             plt.close(fig)
 
-            print(f"[INFO] Contact sheet saved to {output_path}")
         except Exception as e:
             print(f"[ERROR] Failed to save contact sheet: {e}")
 

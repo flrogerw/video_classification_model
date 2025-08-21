@@ -34,11 +34,11 @@ class VideoSegmentPredictor:
         """
         Initialize environment settings and placeholders for models.
         """
-        self.clip_model_name: str = os.getenv("CLIP_MODEL", "")
+        self.clip_model_name: str = os.getenv("MODEL_CLIP_BASE", "")
         self.fps_interval: float = float(os.getenv("FPS", 0.3))
-        self.confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", 0.9))
-        self.black_threshold: float = float(os.getenv("BLACK_THRESHOLD", 1))
-        self.read_length: int = int(os.getenv("READ_LENGTH", 60))
+        self.confidence_threshold: float = float(os.getenv("THRESHOLD_CONFIDENCE", 0.9))
+        self.black_threshold: float = float(os.getenv("THRESHOLD_BLACK", 1))
+        self.read_length: int = int(os.getenv("BUFFER_READ_LENGTH", 60))
         self.class_mapping = {0: "content", 1: "bumper", 2: "commercial"}
 
         self.clip_model: Optional[torch.nn.Module] = None

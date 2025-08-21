@@ -90,7 +90,7 @@ class VideoFrameClipDataset(Dataset):
             self,
             annotation_dir: str,
             clip_model: str,
-            black_threshold: float = os.getenv('BLACK_THRESHOLD'),
+            black_threshold: float = os.getenv('THRESHOLD_BLACK'),
             motion_threshold: float = 2.0,
             interval_sec: float = 1.0,
             content_fps: float = 1.0

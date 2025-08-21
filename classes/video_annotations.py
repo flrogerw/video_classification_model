@@ -46,10 +46,10 @@ class VideoAnnotationGenerator:
             'host': os.getenv("DB_HOST"),
             'port': os.getenv("DB_PORT"),
         }
-        self.annotations_dir = os.getenv("ANNOTATIONS_DIR", "annotations")
-        self.root_dir = os.getenv("ROOT_DIR", ".")
-        self.sample_count = int(os.getenv("SAMPLE_COUNT", 10))
-        self.content_buffer = int(os.getenv("CONTENT_BUFFER", 30))
+        self.annotations_dir = os.getenv("DIR_ANNOTATIONS", "annotations")
+        self.root_dir = os.getenv("DIR_ROOT", ".")
+        self.sample_count = int(os.getenv("COUNT_SAMPLE", 10))
+        self.content_buffer = int(os.getenv("BUFFER_ANNOTATIONS_CONTENT", 30))
 
     @staticmethod
     def _random_json_filename(length: int = 10) -> str:
@@ -127,13 +127,13 @@ class VideoAnnotationGenerator:
 
     def get_show_episode_filename(self, show_id: int) -> List[Dict[str, Any]]:
         """Fetch episode records from the database for a given show ID. Used by inference"""
-        query = f"""SELECT * FROM episodes WHERE show_id = %s;"""
-        query2 = f"""WITH ranked AS (
+        query2 = f"""SELECT * FROM episodes WHERE show_id = %s;"""
+        query = f"""WITH ranked AS (
                           SELECT
                               e.*,
                               ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn
                           FROM episodes e
-                          WHERE show_id = 5
+                          -- WHERE show_id = 5
                       )
                       SELECT *
                      FROM ranked

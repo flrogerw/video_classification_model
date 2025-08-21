@@ -13,7 +13,7 @@ class StartDurationClosenessTrainer:
     def __init__(self, neg_ratio=5, random_state=42):
         self.neg_ratio = neg_ratio
         self.random_state = random_state
-        self.black_threshold = float(os.getenv('BLACK_THRESHOLD'))
+        self.black_threshold = float(os.getenv('THRESHOLD_BLACK'))
 
         self.model = None
 

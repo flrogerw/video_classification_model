@@ -22,11 +22,11 @@ try:
     clip_predictor.load_clip_model(device=device)
     clip_predictor.load_trained_model(
         device=device,
-        path=os.getenv("INFERENCE_CLIP")
+        path=os.getenv("MODEL_INFERENCE_CLIP")
     )
 
     closeness = StartDurationClosenessTrainer()
-    closeness.load_model(os.getenv("INFERENCE_CLOSENESS"))
+    closeness.load_model(os.getenv("MODEL_CLOSENESS"))
 
     generator = VideoAnnotationGenerator()
 
