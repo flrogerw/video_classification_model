@@ -43,7 +43,7 @@ def sanitize(obj):
     else:
         return obj
 
-@celery_app.task(bind=True)
+@celery_app.tasks(bind=True)
 def process_video(self, video_path: str, episode_id: int = None, dev_mode: bool = True):
     """
     Celery task for processing a single video.

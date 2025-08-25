@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from distributed_tasks import process_video
+from tasks import process_video
 from psycopg2.extras import RealDictCursor
 
 ROOT_DIR = os.getenv("DIR_ROOT")

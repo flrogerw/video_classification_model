@@ -68,6 +68,7 @@ try:
                 device=device,
                 target_classes=[1, 2]
             )
+            print(segments)
 
             # Group predicted frames into continuous time intervals
             grouped_segments = clip_predictor.group_segments(segments)

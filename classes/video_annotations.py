@@ -95,16 +95,16 @@ class VideoAnnotationGenerator:
             print(f"Error probing video {filename}: {e}")
             return None
 
-    def update_episode_start_end(self, start: float, end: float, filename: str) -> None:
-        query = f"""UPDATE episodes SET start_point = %s, end_point = %s, processed = true WHERE episode_file = %s"""
+    def update_in_dataset(self, filename: str):
+        basename = os.path.splitext(os.path.basename(filename))[0]
+        query = f"""UPDATE episodes SET in_dataset = true WHERE episode_file = %s"""
         try:
             conn = psycopg2.connect(**self.db_config)
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute(query, (start, end, filename))
+            cur.execute(query, (f"{basename}.mp4",))
             conn.commit()
             cur.close()
             conn.close()
-            print(f"Updated {os.path.basename(filename)}: Start: {start} End: {end}")
 
         except Exception as e:
             print(f"Database query failed: {e}")
@@ -127,12 +127,14 @@ class VideoAnnotationGenerator:
 
     def get_show_episode_filename(self, show_id: int) -> List[Dict[str, Any]]:
         """Fetch episode records from the database for a given show ID. Used by inference"""
-        query2 = f"""SELECT * FROM episodes WHERE show_id = %s;"""
+        query = f"""SELECT * FROM episodes WHERE show_id = %s AND in_dataset = false;"""
+
         query = f"""WITH ranked AS (
                           SELECT
                               e.*,
                               ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY random()) AS rn
                           FROM episodes e
+                          WHERE in_dataset = false
                           -- WHERE show_id = 5
                       )
                       SELECT *
@@ -190,7 +192,6 @@ class VideoAnnotationGenerator:
     def get_training_annotations(self, segments: tuple) -> None:
 
         file_path, segs = segments
-        print(file_path, segs)
 
         bumpers = []
         end_point = self.get_video_length(file_path)
@@ -199,9 +200,8 @@ class VideoAnnotationGenerator:
             print(f"Skipping file {file_path} (no duration found).")
             return
         try:
-            for timestamp in sorted(segs):
+            for timestamp, _ in sorted(segs):
                 closer = min((0, end_point), key=lambda v: abs(timestamp - v))
-                print(closer)
                 if closer == 0:
                     bumpers.append((0, round(timestamp, 2)))
                 else:

@@ -26,8 +26,8 @@ class ClipClassifierTrainer:
 
         # Config from env
         self.confusion_matrix_enabled = os.getenv("CONFUSION_MATRIX", "False").lower() in ("true", "1", "yes")
-        self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS_ALL")
-        # self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS")
+        # self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS_ALL")
+        self.annotations_dir: Optional[str] = os.getenv("DIR_ANNOTATIONS")
         self.black_threshold: float = float(os.getenv("THRESHOLD_BLACK", 1.0))
         self.motion_threshold: float = float(os.getenv("THRESHOLD_MOTION", 2.0))
         self.clip_model_name: Optional[str] = os.getenv("MODEL_CLIP_BASE")

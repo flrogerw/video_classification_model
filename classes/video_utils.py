@@ -2,7 +2,7 @@ from time import sleep
 
 import numpy as np
 import matplotlib
-matplotlib.use("TkAgg")  # or "Qt5Agg" if you have PyQt5/PySide2 installed
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 import cv2
@@ -46,7 +46,7 @@ class VideoContactSheet:
         frames (list[Image.Image]): List of extracted PIL image frames.
     """
 
-    def __init__(self, video_path: str, cols: int = 4) -> None:
+    def __init__(self, video_path: str, matlib_show: bool = True, cols: int = 6) -> None:
         """
         Initialize the VideoContactSheet.
 
@@ -56,11 +56,14 @@ class VideoContactSheet:
         """
         self.video_path = video_path
         self.cols = cols
-        self.frames: List[Image.Image] = []
-        self.metadata: list[float] = []
-        self.clip_metadata: list[float] = []
+        self.frames: list[Image.Image | None] = []
+        self.metadata: list[tuple[float, float, float] | None] = []
+        self.clip_metadata: list[tuple[float, float, float]] = []
         self.annotations: list = []
         self.generator = VideoAnnotationGenerator()
+
+        if not matlib_show:
+            matplotlib.use("Agg")
 
     @staticmethod
     def frame_to_image(frame) -> Image.Image:
@@ -143,9 +146,9 @@ class VideoContactSheet:
 
                     timestamp_text = f"{t:0>8.3f}s"
                     if not on_click:
-                        self.metadata.append((t, start_sec, end_sec))
+                        self.metadata.append((t, (start_sec, end_sec)))
                     else:
-                        self.clip_metadata.append((t, start_sec, end_sec))
+                        self.clip_metadata.append((t, (start_sec, end_sec)))
 
                     cv2.putText(
                         frame,
@@ -173,7 +176,7 @@ class VideoContactSheet:
         except Exception as e:
             print(f"[ERROR] Failed to extract frames from segments {segments} every {interval_sec}s: {e}")
 
-    def make_contact_sheet(self, return_grid: bool = False) -> Optional[tuple[Image.Image, tuple[int, int]]]:
+    def make_contact_sheet(self, return_grid: bool = False, cols: int = 6) -> Optional[tuple[Image.Image, tuple[int, int]]]:
         """
         Create a contact sheet from the collected frames, inserting a line break between segments.
 
@@ -185,6 +188,10 @@ class VideoContactSheet:
                 A PIL Image representing the contact sheet, or None if no frames exist.
             If return_grid is True:
                 (sheet, (rows, cols)), or None if no frames exist.
+
+        Parameters
+        ----------
+        cols
         """
         try:
             if not self.frames:
@@ -195,9 +202,8 @@ class VideoContactSheet:
             # Count actual frames to compute rows
             num_actual_frames = len([f for f in self.frames if f is not None])
             # Estimate rows; we'll adjust y dynamically for line breaks
-            rows = math.ceil(num_actual_frames / self.cols) + len([f for f in self.frames if f is None])
-            sheet = Image.new("RGB", (self.cols * w, rows * h), color="white")
-
+            rows = math.ceil(num_actual_frames / cols) + len([f for f in self.frames if f is None])
+            sheet = Image.new("RGB", (cols * w, rows * h), color="white")
             x_offset = 0
             y_offset = 0
             col_count = 0
@@ -215,14 +221,14 @@ class VideoContactSheet:
                 col_count += 1
                 x_offset += w
 
-                if col_count >= self.cols:
+                if col_count >= cols:
                     # Move to next row
                     x_offset = 0
                     y_offset += h
                     col_count = 0
 
             if return_grid:
-                return sheet, (rows, self.cols)
+                return sheet, (rows, cols)
             else:
                 return sheet
 
@@ -257,21 +263,24 @@ class VideoContactSheet:
         Display the generated contact sheet using matplotlib.
         """
         try:
-            sheet, grid_shape = self.make_contact_sheet(return_grid=True)
+
+            cols = 16 if image_click else 6
+            sheet, grid_shape = self.make_contact_sheet(return_grid=True, cols=cols)
             if sheet is None:
                 return
 
             # Create a bigger figure (width, height) in inches
-            fig, ax = plt.subplots(figsize=(12, 10))
-            plt.imshow(np.array(sheet))
-            plt.axis('off')
-            plt.title(self.video_path, fontsize=12, pad=20)
+            fig, ax = plt.subplots(figsize=(15, 15))
+            ax.imshow(np.array(sheet))
+            ax.axis('off')
+            plt.title(self.video_path, fontsize=22, pad=20)
 
             def on_content_click(event):
                 self.generator.get_training_annotations((self.video_path, []))
                 plt.close(fig)
 
             def on_skip_click(event):
+                self.generator.update_in_dataset(self.video_path)
                 plt.close(fig)
 
             def on_clear_click(event):
@@ -280,6 +289,7 @@ class VideoContactSheet:
             def on_button_click(event):
                 if self.annotations:
                     self.generator.get_training_annotations((self.video_path, self.annotations))
+                    self.generator.update_in_dataset(self.video_path)
                     self.annotations.clear()
                 plt.close(fig)
 
@@ -315,8 +325,8 @@ class VideoContactSheet:
                 row = int(event.ydata // cell_h)
                 idx = row * ncols + col
                 if 0 <= idx < len(self.metadata):
-                    meta = self.metadata[idx]
-                    self.extract_frames_intervals([(meta, meta + 8)], 0.2, on_click=True)
+                    _, start_end = self.metadata[idx]
+                    self.extract_frames_intervals([start_end], 0.2, on_click=True)
                     self.show_contact_sheet(image_click=True)
 
             def second_click(event):

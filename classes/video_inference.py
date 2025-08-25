@@ -45,6 +45,45 @@ class VideoSegmentPredictor:
         self.preprocess: Optional[Callable] = None
         self.classifier_model: Optional[torch.nn.Module] = None
 
+    def trim_black_frames(self, video_path: str):
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise RuntimeError(f"Unable to open video file: {video_path}")
+
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = round(total_frames / fps, 2)
+
+            # --- STEP 1: Find first non-black frame ---
+            start_frame_idx = 0
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            while start_frame_idx < total_frames:
+                success, frame = cap.read()
+                if not success:
+                    break
+                if not self.is_black_frame(frame, threshold=self.black_threshold):
+                    break
+                start_frame_idx += 1
+            start_time = start_frame_idx / fps
+
+            # --- STEP 2: Find last non-black frame ---
+            end_frame_idx = total_frames - 1
+            cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+            while end_frame_idx > start_frame_idx:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, end_frame_idx)
+                success, frame = cap.read()
+                if not success:
+                    break
+                if not self.is_black_frame(frame, threshold=self.black_threshold):
+                    break
+                end_frame_idx -= 1
+            end_time = round(end_frame_idx / fps, 2)
+
+            return max(0, round(start_time, 2)), min(end_time, duration)
+        except Exception as e:
+            raise RuntimeError(f"Error trimming black frames: video {video_path}: {e}")
+
     def load_clip_model(self, device: str) -> None:
         """
         Load the CLIP model and preprocessing pipeline.
@@ -83,26 +122,35 @@ class VideoSegmentPredictor:
             device: str,
             target_classes=None,
     ) -> List[Tuple[float, int, float]]:
-        """
-        Predict segments in a video where specific classes appear.
-
-        Args:
-            video_path: Path to the video file.
-            device: Device string ("cuda", "mps", "cpu").
-            target_classes: classes to process [0,1,2]
-
-        Returns:
-            List of (timestamp_seconds, predicted_class_id) tuples.
-
-        Raises:
-            RuntimeError: If video reading or prediction fails.
-        """
         if target_classes is None:
             target_classes = []
         if self.clip_model is None or self.preprocess is None or self.classifier_model is None:
             raise RuntimeError("Models not loaded. Call load_clip_model and load_trained_model first.")
 
+        CLASS_TO_EXTEND = 1  # the class that drives boundary extension
+        extend_buffer_sec = 1.0  # stop only after this long without seeing CLASS_TO_EXTEND
+
         print(f"\nProcessing: {video_path}", flush=True)
+
+        def infer_on_frame(frame):
+            """Run model and return (pred_cls:int, conf:float) or (None, None) if black."""
+            if self.is_black_frame(frame, threshold=self.black_threshold):
+                return None, None
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            image_input = self.preprocess(img).unsqueeze(0).to(device)
+            with torch.no_grad():
+                embedding = self.clip_model.encode_image(image_input)
+                output = self.classifier_model(embedding)
+                probs = torch.softmax(output, dim=1)
+            max_prob, predicted_class = torch.max(probs, dim=1)
+            return predicted_class.item(), max_prob.item()
+
+        def maybe_record(ts, pred_cls, conf, sink):
+            """Record only if within targets and above threshold."""
+            if pred_cls is None:
+                return
+            if target_classes and pred_cls in target_classes and conf > self.confidence_threshold:
+                sink.append((ts, pred_cls, conf))
 
         try:
             cap = cv2.VideoCapture(video_path)
@@ -110,52 +158,132 @@ class VideoSegmentPredictor:
                 raise RuntimeError(f"Unable to open video file: {video_path}")
 
             fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            duration = total_frames / fps
+            if fps <= 0:
+                raise RuntimeError("Invalid FPS from video.")
+            start_time, end_time = self.trim_black_frames(video_path=video_path)
+            if start_time is None or end_time is None or end_time <= start_time:
+                raise RuntimeError("trim_black_frames returned invalid bounds.")
 
-            start_window_end = self.read_length
-            end_window_start = duration - self.read_length
+            results: List[Tuple[float, int, float]] = []
 
-            timestamped_classes: List[Tuple[float, int, float]] = []
-            frame_idx = 0
+            # ---------------------------
+            # PASS 1: Forward from start
+            # ---------------------------
+            start_idx = int(start_time * fps)
+            end_idx_max = int(end_time * fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
 
-            success, frame = cap.read()
-            while success:
-                timestamp_sec = frame_idx / fps
+            read_window_end = start_time + self.read_length
+            last_class1_seen_at = None
 
-                # Only process frames in the first N or last N seconds
-                if timestamp_sec <= start_window_end or timestamp_sec >= end_window_start:
-                    if self.is_black_frame(frame, threshold=self.black_threshold):
-                        timestamped_classes.append((frame_idx / fps, -1, 1))
-                        success, frame = cap.read()
-                        frame_idx += 1
-                        continue
-
-                    # Convert to PIL and preprocess
-                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                    image_input = self.preprocess(img).unsqueeze(0).to(device)
-
-                    with torch.no_grad():
-                        embedding = self.clip_model.encode_image(image_input)
-                        output = self.classifier_model(embedding)
-                        probs = torch.softmax(output, dim=1)
-
-                    max_prob, predicted_class = torch.max(probs, dim=1)
-                    confidence = max_prob.item()
-
-                    # Store timestamp if it meets target and confidence threshold
-                    if (
-                            target_classes
-                            and predicted_class.item() in target_classes
-                            and max_prob.item() > self.confidence_threshold
-                    ):
-                        timestamped_classes.append((frame_idx / fps, predicted_class.item(), confidence))
-
+            frame_idx = start_idx
+            while True:
+                if frame_idx > end_idx_max:
+                    break
                 success, frame = cap.read()
+                if not success:
+                    break
+                ts = frame_idx / fps
+                if ts > end_time:
+                    break
+
+                pred_cls, conf = infer_on_frame(frame)
+                if pred_cls is not None:
+                    maybe_record(ts, pred_cls, conf, results)
+                    if pred_cls == CLASS_TO_EXTEND and conf > self.confidence_threshold:
+                        last_class1_seen_at = ts
+
+                # --- Stopping condition ---
+                if ts >= read_window_end:
+                    if last_class1_seen_at is not None and (ts - last_class1_seen_at) < extend_buffer_sec:
+                        # Saw Class 1 recently → extend
+                        read_window_end += extend_buffer_sec
+                    elif pred_cls is None:
+                        # Black frame → don’t stop yet
+                        pass
+                    elif pred_cls == 0:
+                        # Found Class 0 → stop cleanly
+                        break
+                    else:
+                        # No recent Class 1, not black, not Class 0 → stop
+                        break
+
                 frame_idx += 1
 
             cap.release()
-            return timestamped_classes
+
+            # ---------------------------
+            # PASS 2: Backward from end
+            # ---------------------------
+            cap2 = cv2.VideoCapture(video_path)
+            if not cap2.isOpened():
+                raise RuntimeError(f"Unable to re-open video file: {video_path}")
+
+            end_idx = int(end_time * fps)
+            min_idx = int(start_time * fps)
+            target_span_start_idx = max(min_idx, end_idx - int(self.read_length * fps))
+
+            frames_since_class1 = int(1e9)  # big number: "haven't seen Class 1 yet"
+            frame_idx = end_idx
+
+            while frame_idx >= min_idx:
+                cap2.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                success, frame = cap2.read()
+                if not success:
+                    frame_idx -= 1
+                    continue
+
+                ts = frame_idx / fps
+                if ts < start_time:
+                    break
+
+                pred_cls, conf = infer_on_frame(frame)
+                if pred_cls is not None:
+                    maybe_record(ts, pred_cls, conf, results)
+
+                # Update Class 1 recency
+                if pred_cls == CLASS_TO_EXTEND and conf is not None and conf > self.confidence_threshold:
+                    frames_since_class1 = 0
+                else:
+                    frames_since_class1 += 1
+
+                # --- Stopping condition ---
+                if frame_idx <= target_span_start_idx:
+                    if frames_since_class1 <= int(extend_buffer_sec * fps):
+                        # Saw Class 1 recently -> keep going
+                        pass
+                    elif pred_cls is None:
+                        # Black frame -> keep going until we hit a real class
+                        pass
+                    elif pred_cls == 0:
+                        # Found real Class 0 -> safe to stop
+                        break
+                    else:
+                        # Some other class, no recent Class 1 -> stop
+                        break
+
+                frame_idx -= 1
+
+            cap2.release()
+
+            # ---------------------------
+            # De-duplicate & sort results
+            # ---------------------------
+            # Dedup by (rounded timestamp, class) to avoid double-count from overlaps.
+            seen = set()
+            unique = []
+            for ts, cls_id, conf in sorted(results, key=lambda x: x[0]):
+                key = (round(ts, 3), cls_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique.append((ts, cls_id, conf))
+
+            return unique
+
+        except Exception as e:
+            raise RuntimeError(f"Error processing video {video_path}: {e}")
+
 
         except Exception as e:
             raise RuntimeError(f"Error processing video {video_path}: {e}")
